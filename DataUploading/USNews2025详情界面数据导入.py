@@ -29,6 +29,8 @@ class MilvusImporter:
     # 读取配置文件
     def load_config():
         """读取配置文件"""
+        # 配置文件路径
+        config_file = os.path.join(project_root, "Config", "Milvus.ini")
         config = configparser.ConfigParser()
         config.read(config_file, encoding='utf-8')
         return {
@@ -655,8 +657,7 @@ class MilvusImporter:
 if __name__ == "__main__":
     # 获取项目根目录
     project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    # 配置文件路径
-    config_file = os.path.join(project_root, "Config", "Milvus.ini")
+    
     # 默认数据文件路径
     default_data_file = os.path.join(project_root, "DataProcessed", "USNews2025详情界面数据_processed.json")
     
