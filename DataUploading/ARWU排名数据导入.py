@@ -19,20 +19,30 @@ from pymilvus import (
     utility
 )
 
-# 工作目录设置
+# 获取项目根目录
 project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-sys.path.append(project_root)
+# 配置文件路径
+config_file = os.path.join(project_root, "Config", "Milvus.ini")
+# 默认数据文件路径
+default_data_file = os.path.join(project_root, "DataProcessed", "ARWU2024_processed.json")
 
-# 输入输出文件路径
-processed_file = os.path.join(project_root, "DataProcessed", "ARWU2024_processed.json")
-
-# 连接参数
-_HOST = 'localhost'
-_PORT = '19530'
-_PARTITION_NAME = "ARWU2024"
+# 读取配置文件
+def load_config():
+    """读取配置文件"""
+    config = configparser.ConfigParser()
+    config.read(config_file, encoding='utf-8')
+    return {
+        'host': config.get('connection', 'host', fallback='localhost'),
+        'port': config.get('connection', 'port', fallback='19530')
+    }
 
 def connect_milvus():
     """连接到Milvus服务器"""
+    # 加载配置
+    milvus_config = load_config()
+    host = milvus_config['host']
+    port = milvus_config['port']
+    
     print(f"连接到 Milvus 服务器 {_HOST}:{_PORT}")
     try:
         connections.connect(
@@ -424,7 +434,7 @@ def main():
     print("\n--- 创建评分向量集合 ---")
     collections["score"] = create_score_collection()
     if collections["score"]:
-        if not import_score_data(collections["score"], processed_file):
+        if not import_score_data(collections["score"], default_data_file):
             success = False
     else:
         success = False
@@ -433,7 +443,7 @@ def main():
     print("\n--- 创建增强向量集合 ---")
     collections["enhanced"] = create_enhanced_collection()
     if collections["enhanced"]:
-        if not import_enhanced_data(collections["enhanced"], processed_file):
+        if not import_enhanced_data(collections["enhanced"], default_data_file):
             success = False
     else:
         success = False
@@ -442,7 +452,7 @@ def main():
     print("\n--- 创建文本向量集合 ---")
     collections["text"] = create_text_collection()
     if collections["text"]:
-        if not import_text_data(collections["text"], processed_file):
+        if not import_text_data(collections["text"], default_data_file):
             success = False
     else:
         success = False
