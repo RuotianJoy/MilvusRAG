@@ -4,9 +4,27 @@
 import json
 from pymilvus import connections, Collection, utility
 from sentence_transformers import SentenceTransformer
+import os
+import configparser
+
+# 获取项目根目录
+project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+# 配置文件路径
+config_file = os.path.join(project_root, "Config", "Milvus.ini")
+
+# 读取配置文件
+def load_config():
+    """读取配置文件"""
+    config = configparser.ConfigParser()
+    config.read(config_file, encoding='utf-8')
+    return {
+        'host': config.get('connection', 'host', fallback='localhost'),
+        'port': config.get('connection', 'port', fallback='19530')
+    }
+
 
 class USNews2025SubjectDataTester:
-    def __init__(self, host="localhost", port="19530"):
+    def __init__(self):
         """
         初始化测试器
         
@@ -14,9 +32,6 @@ class USNews2025SubjectDataTester:
             host: Milvus服务器主机
             port: Milvus服务器端口
         """
-        self.host = host
-        self.port = port
-        
         # 连接Milvus服务
         self.connect_to_milvus()
         
@@ -33,6 +48,11 @@ class USNews2025SubjectDataTester:
         """
         连接到Milvus服务
         """
+         # 加载配置
+        milvus_config = load_config()
+        host = milvus_config['host']
+        port = milvus_config['port']
+        
         try:
             connections.connect("default", host=self.host, port=self.port)
             print(f"已成功连接到Milvus服务器: {self.host}:{self.port}")
