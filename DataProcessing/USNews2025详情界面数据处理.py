@@ -209,14 +209,10 @@ def process_usnews_data(input_file, output_file):
         return None
 
 if __name__ == "__main__":
-    # 获取当前脚本所在的目录
     current_dir = os.path.dirname(os.path.abspath(__file__))
-    # 获取项目根目录
-    root_dir = os.path.dirname(current_dir)
-    
-    # 输入和输出文件路径
-    input_file = os.path.join(root_dir, "第三方排名网站数据爬取", "USNews2025详情界面数据.json")
-    output_file = os.path.join(current_dir, "USNews2025详情界面数据_processed.json")
+    project_root = os.path.dirname(current_dir)
+    input_file = os.path.join(project_root, 'DataOriginal\Data', 'USNews2025详情界面数据.json')
+    output_file = os.path.join(project_root, 'DataProcessed', 'USNews2025详情界面数据_processed.json')
     
     # 处理数据
     process_usnews_data(input_file, output_file) 
