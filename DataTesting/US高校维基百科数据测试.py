@@ -10,6 +10,7 @@ from pymilvus import (
 from dotenv import load_dotenv
 from transformers import BertModel, BertTokenizer
 import torch
+import configparser
 
 # 配置日志
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -17,10 +18,22 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 # 加载环境变量
 load_dotenv()
 
-# Milvus连接配置
-MILVUS_HOST = os.getenv("MILVUS_HOST", "localhost")
-MILVUS_PORT = os.getenv("MILVUS_PORT", "19530")
-COLLECTION_NAME = "us_colleges_wiki"  # 更新为新的集合名称
+# 获取项目根目录
+project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+# 配置文件路径
+config_file = os.path.join(project_root, "Config", "Milvus.ini")
+
+# 读取配置文件
+def load_config():
+    """读取配置文件"""
+    config = configparser.ConfigParser()
+    config.read(config_file, encoding='utf-8')
+    return {
+        'host': config.get('connection', 'host', fallback='localhost'),
+        'port': config.get('connection', 'port', fallback='19530')
+    }
+
+COLLECTION_NAME = "us_colleges_wiki" 
 
 # 全局BERT模型和分词器
 BERT_MODEL = None
@@ -43,11 +56,15 @@ def load_bert_model():
 
 def connect_to_milvus():
     """连接到Milvus服务器"""
+    # 加载配置
+    milvus_config = load_config()
+    host = milvus_config['host']
+    port = milvus_config['port']
     try:
         connections.connect(
             alias="default", 
-            host=MILVUS_HOST, 
-            port=MILVUS_PORT
+            host=host, 
+            port=port
         )
         logging.info(f"成功连接到Milvus服务器: {MILVUS_HOST}:{MILVUS_PORT}")
         return True
