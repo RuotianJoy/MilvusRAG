@@ -10,6 +10,8 @@ THE2025排名数据测试脚本
 from pymilvus import connections, Collection, utility
 import numpy as np
 import argparse
+import os
+import configparser
 
 # 集合名称常量
 BASIC_INFO_COLLECTION = "the2025_basic_info"
