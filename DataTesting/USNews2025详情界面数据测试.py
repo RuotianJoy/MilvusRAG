@@ -3,6 +3,7 @@
 
 from pymilvus import connections, Collection
 from sentence_transformers import SentenceTransformer
+import os
 import configparser
 
 # 获取项目根目录
