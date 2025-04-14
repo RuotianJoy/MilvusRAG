@@ -313,10 +313,11 @@ class MilvusImporter:
 def main():
     """主函数"""
     # 获取脚本路径
-    script_dir = os.path.dirname(os.path.abspath(__file__))
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    project_root = os.path.dirname(current_dir)
     
     # 构建输入文件路径
-    input_file = os.path.join(script_dir, "US高校维基百科数据_processed.json")
+    input_file = os.path.join(project_root, 'DataProcessed', "US高校维基百科数据_processed.json")
     
     # 添加调试日志
     logging.info(f"脚本目录: {script_dir}")
