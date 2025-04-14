@@ -28,7 +28,7 @@ project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # 配置文件路径
 config_file = os.path.join(project_root, "Config", "Milvus.ini")
 # 默认数据文件路径
-default_data_file = os.path.join(project_root, "DataProcessed", "Wiki美国高校初步数据_processed.json")
+default_data_file = os.path.join(project_root, "DataProcessed", "THE2025_processed.json")
 
 # 读取配置文件
 def load_config():
