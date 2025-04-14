@@ -6,7 +6,7 @@ import os
 import numpy as np
 from pymilvus import connections, Collection, FieldSchema, CollectionSchema, DataType, utility
 from sentence_transformers import SentenceTransformer
-
+import configparser
 
 class MilvusImporter:
     def __init__(self, processed_data_path=None):
@@ -48,7 +48,7 @@ class MilvusImporter:
         port = milvus_config['port']
         
         try:
-            connections.connect("default", host=self.host, port=self.port)
+            connections.connect("default", host=host, port=port)
             print(f"已成功连接到Milvus服务器: {self.host}:{self.port}")
         except Exception as e:
             print(f"连接Milvus服务器失败: {str(e)}")
