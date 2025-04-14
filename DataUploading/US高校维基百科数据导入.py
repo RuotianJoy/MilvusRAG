@@ -22,12 +22,6 @@ logging.basicConfig(
 # 加载环境变量
 load_dotenv()
 
-# 基本配置
-MILVUS_HOST = os.getenv("MILVUS_HOST", "localhost")
-MILVUS_PORT = os.getenv("MILVUS_PORT", "19530")
-COLLECTION_NAME = "us_colleges_wiki"
-VECTOR_DIM = 768  # BERT向量维度
-
 class MilvusImporter:
     def __init__(self, input_file_path):
         self.input_file_path = input_file_path
@@ -84,9 +78,25 @@ class MilvusImporter:
         except Exception as e:
             logging.error(f"加载数据失败: {e}")
             return False
+
+    def load_config():
+        """读取配置文件"""
+        # 配置文件路径
+        config_file = os.path.join(project_root, "Config", "Milvus.ini")
+        config = configparser.ConfigParser()
+        config.read(config_file, encoding='utf-8')
+        return {
+            'host': config.get('connection', 'host', fallback='localhost'),
+            'port': config.get('connection', 'port', fallback='19530')
+        }
     
     def _connect_to_milvus(self):
         """连接到Milvus服务器"""
+        # 加载配置
+        milvus_config = load_config()
+        host = milvus_config['host']
+        port = milvus_config['port']
+        
         try:
             connections.connect(
                 alias="default",
@@ -312,20 +322,19 @@ class MilvusImporter:
 
 def main():
     """主函数"""
-    # 获取脚本路径
-    current_dir = os.path.dirname(os.path.abspath(__file__))
-    project_root = os.path.dirname(current_dir)
-    
-    # 构建输入文件路径
-    input_file = os.path.join(project_root, 'DataProcessed', "US高校维基百科数据_processed.json")
+    # 获取项目根目录
+    project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+    # 默认数据文件路径
+    default_data_file = os.path.join(project_root, "DataProcessed", "US高校维基百科数据_processed.json")
     
     # 添加调试日志
     logging.info(f"脚本目录: {script_dir}")
-    logging.info(f"输入文件路径: {input_file}")
-    logging.info(f"文件是否存在: {os.path.exists(input_file)}")
+    logging.info(f"输入文件路径: {default_data_file}")
+    logging.info(f"文件是否存在: {os.path.exists(default_data_file)}")
     
     # 创建导入器并运行
-    importer = MilvusImporter(input_file)
+    importer = MilvusImporter(default_data_file)
     success = importer.run()
     
     if success:
