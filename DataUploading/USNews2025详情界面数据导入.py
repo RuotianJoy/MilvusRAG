@@ -643,9 +643,10 @@ class MilvusImporter:
 if __name__ == "__main__":
     # 获取当前脚本所在的目录
     current_dir = os.path.dirname(os.path.abspath(__file__))
+    project_root = os.path.dirname(current_dir)
     
     # 处理后的数据文件路径
-    processed_data_path = os.path.join(current_dir, "USNews2025详情界面数据_processed.json")
+    processed_data_path = os.path.join(project_root, 'DataProcessed', "USNews2025详情界面数据_processed.json")
     
     # 创建导入器并导入数据
     importer = MilvusImporter(
