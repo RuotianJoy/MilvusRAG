@@ -12,6 +12,7 @@ from pymilvus import (
     utility
 )
 from dotenv import load_dotenv
+import configparser
 
 # 设置日志格式，只保留必要的信息
 logging.basicConfig(
@@ -100,10 +101,10 @@ class MilvusImporter:
         try:
             connections.connect(
                 alias="default",
-                host=MILVUS_HOST,
-                port=MILVUS_PORT
+                host=host,
+                port=port
             )
-            logging.info(f"已连接到Milvus服务器: {MILVUS_HOST}:{MILVUS_PORT}")
+            logging.info(f"已连接到Milvus服务器: {host}:{port}")
             return True
         except Exception as e:
             logging.error(f"连接Milvus失败: {e}")
