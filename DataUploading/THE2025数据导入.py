@@ -48,7 +48,7 @@ def connect_milvus():
     host = milvus_config['host']
     port = milvus_config['port']
     
-    print(f"连接到 Milvus 服务器 {_HOST}:{_PORT}")
+    print(f"连接到 Milvus 服务器 {host}:{port}")
     try:
         connections.connect(
             alias="default",
