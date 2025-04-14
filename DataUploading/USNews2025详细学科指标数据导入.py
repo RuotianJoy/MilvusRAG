@@ -9,7 +9,7 @@ from pymilvus import connections, Collection, FieldSchema, CollectionSchema, Dat
 from sentence_transformers import SentenceTransformer
 
 class USNews2025SubjectDataImporter:
-    def __init__(self, host="localhost", port="19530", processed_data_path=None):
+    def __init__(self, processed_data_path=None):
         """
         初始化Milvus导入器
         
@@ -34,11 +34,28 @@ class USNews2025SubjectDataImporter:
         # 加载处理后的数据
         self.processed_data_path = processed_data_path
         self.processed_data = self.load_processed_data()
+
+    # 读取配置文件
+    def load_config():
+        """读取配置文件"""
+        # 配置文件路径
+        config_file = os.path.join(project_root, "Config", "Milvus.ini")
+        config = configparser.ConfigParser()
+        config.read(config_file, encoding='utf-8')
+        return {
+            'host': config.get('connection', 'host', fallback='localhost'),
+            'port': config.get('connection', 'port', fallback='19530')
+        }
     
     def connect_to_milvus(self):
         """
         连接到Milvus服务
         """
+        # 加载配置
+        milvus_config = load_config()
+        host = milvus_config['host']
+        port = milvus_config['port']
+    
         try:
             connections.connect("default", host=self.host, port=self.port)
             print(f"已成功连接到Milvus服务器: {self.host}:{self.port}")
@@ -532,19 +549,15 @@ class USNews2025SubjectDataImporter:
 
 # 如果作为主程序运行
 if __name__ == "__main__":
-    # 获取当前脚本所在的目录
-    current_dir = os.path.dirname(os.path.abspath(__file__))
-    
-    # 处理后的数据文件路径
-    processed_data_path = os.path.join(current_dir, "USNews2025详细学科指标数据_processed.json")
+    # 获取项目根目录
+    project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+    # 默认数据文件路径
+    default_data_file = os.path.join(project_root, "DataProcessed", "USNews2025详细学科指标数据_processed.json")
     
     # 检查处理后的数据文件是否存在
     if not os.path.exists(processed_data_path):
-        print(f"处理后的数据文件不存在: {processed_data_path}")
+        print(f"处理后的数据文件不存在: {default_data_file}")
     else:
-        importer = USNews2025SubjectDataImporter(
-            host="localhost", 
-            port="19530", 
-            processed_data_path=processed_data_path
-        )
+        importer = USNews2025SubjectDataImporter(processed_data_path=default_data_file)
         importer.import_all_data() 
