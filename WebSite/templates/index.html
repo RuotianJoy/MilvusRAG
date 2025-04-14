@@ -1,0 +1,333 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MilvusRAG - 测试评估系统</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css">
+    <style>
+        body {
+            background-color: #f8f9fa;
+            font-family: "Microsoft YaHei", sans-serif;
+        }
+        .header {
+            background-color: #ffffff;
+            border-bottom: 1px solid #e9ecef;
+            padding: 1rem 0;
+            margin-bottom: 2rem;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.05);
+        }
+        .card {
+            border: none;
+            border-radius: 10px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
+            transition: transform 0.3s;
+            margin-bottom: 1.5rem;
+        }
+        .card:hover {
+            transform: translateY(-5px);
+        }
+        .card-header {
+            background-color: #0d6efd;
+            color: white;
+            border-radius: 10px 10px 0 0 !important;
+            padding: 1rem;
+        }
+        .feature-icon {
+            font-size: 2.5rem;
+            margin-bottom: 1rem;
+            color: #0d6efd;
+        }
+        .footer {
+            background-color: #f1f1f1;
+            padding: 2rem 0;
+            margin-top: 3rem;
+        }
+        .upload-area {
+            border: 2px dashed #dee2e6;
+            padding: 2rem;
+            text-align: center;
+            background-color: #f8f9fa;
+            border-radius: 10px;
+            margin-bottom: 2rem;
+            transition: all 0.3s;
+        }
+        .upload-area:hover {
+            border-color: #0d6efd;
+            background-color: #f0f7ff;
+        }
+        .alerts-container {
+            position: fixed;
+            top: 70px;
+            right: 20px;
+            z-index: 1050;
+            max-width: 350px;
+        }
+    </style>
+</head>
+<body>
+    <!-- 顶部导航栏 -->
+    <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
+        <div class="container">
+            <a class="navbar-brand" href="{{ url_for('index') }}">
+                <i class="bi bi-database-fill"></i> MilvusRAG
+            </a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav ms-auto">
+                    <li class="nav-item">
+                        <a class="nav-link active" href="{{ url_for('index') }}">
+                            <i class="bi bi-house-fill"></i> 首页
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="{{ url_for('milvus_data') }}">
+                            <i class="bi bi-database-fill"></i> Milvus数据
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="{{ url_for('test_history') }}">
+                            <i class="bi bi-clock-history"></i> 历史记录
+                        </a>
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </nav>
+
+    <!-- 页面头部 -->
+    <div class="header">
+        <div class="container">
+            <h1 class="text-center">MilvusRAG测试评估系统</h1>
+            <p class="text-center text-muted">上传测试文件，执行测试并查看评估结果</p>
+        </div>
+    </div>
+
+    <!-- 消息提示区域 -->
+    <div class="alerts-container">
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                {% for category, message in messages %}
+                    <div class="alert alert-{{ category if category != 'message' else 'info' }} alert-dismissible fade show">
+                        {{ message }}
+                        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                    </div>
+                {% endfor %}
+            {% endif %}
+        {% endwith %}
+    </div>
+
+    <!-- 主要内容 -->
+    <div class="container">
+        <div class="row">
+            <div class="col-lg-8 mx-auto">
+                <div class="card mb-4">
+                    <div class="card-header">
+                        <h5 class="mb-0"><i class="bi bi-upload"></i> 上传测试文件</h5>
+                    </div>
+                    <div class="card-body">
+                        <form action="{{ url_for('upload_file') }}" method="post" enctype="multipart/form-data" id="uploadForm">
+                            <div class="upload-area" id="drop-area">
+                                <i class="bi bi-cloud-arrow-up feature-icon"></i>
+                                <h5>拖放文件到此处或点击选择文件</h5>
+                                <p class="text-muted">支持CSV和Excel格式，包含Questions和Answers列</p>
+                                <input type="file" name="file" id="fileInput" class="form-control" accept=".csv,.xlsx" style="display: none;">
+                                <button type="button" class="btn btn-primary mt-3" id="browseBtn">
+                                    <i class="bi bi-folder2-open"></i> 浏览文件
+                                </button>
+                            </div>
+                            
+                            <!-- 添加文件信息显示区域 -->
+                            <div id="fileInfo" class="alert alert-info d-none mb-3">
+                                <i class="bi bi-file-earmark-check"></i>
+                                <span id="fileName">未选择文件</span>
+                            </div>
+                            
+                            <div class="d-grid">
+                                <button type="submit" class="btn btn-success" id="submitBtn" disabled>
+                                    <i class="bi bi-arrow-up-circle-fill"></i> 上传并处理
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="mb-0"><i class="bi bi-info-circle"></i> 使用说明</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="mb-4">
+                            <h6><i class="bi bi-1-circle"></i> 准备测试文件</h6>
+                            <p>创建包含<code>Questions</code>和<code>Answers</code>列的CSV或Excel文件。每行包含一个测试问题和参考答案。</p>
+                        </div>
+                        <div class="mb-4">
+                            <h6><i class="bi bi-2-circle"></i> 上传文件</h6>
+                            <p>上传您准备好的测试文件，系统将验证文件格式并准备测试。</p>
+                        </div>
+                        <div class="mb-4">
+                            <h6><i class="bi bi-3-circle"></i> 执行测试</h6>
+                            <p>点击"执行测试"按钮，系统将连接Milvus数据库，对每个问题执行RAG测试并生成答案。</p>
+                        </div>
+                        <div>
+                            <h6><i class="bi bi-4-circle"></i> 查看结果</h6>
+                            <p>系统将计算ROUGE等指标并展示详细结果，同时提供CSV格式的结果下载。</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- JavaScript依赖 -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            // 文件上传交互
+            const dropArea = document.getElementById('drop-area');
+            const fileInput = document.getElementById('fileInput');
+            const browseBtn = document.getElementById('browseBtn');
+            const submitBtn = document.getElementById('submitBtn');
+            const uploadForm = document.getElementById('uploadForm');
+            const fileInfo = document.getElementById('fileInfo');
+            const fileName = document.getElementById('fileName');
+
+            // 点击浏览按钮触发文件选择
+            browseBtn.addEventListener('click', function() {
+                fileInput.click();
+            });
+
+            // 点击上传区域触发文件选择
+            dropArea.addEventListener('click', function(e) {
+                if (e.target !== browseBtn && e.target.parentElement !== browseBtn) {
+                    fileInput.click();
+                }
+            });
+
+            // 文件选择后显示文件名并启用提交按钮
+            fileInput.addEventListener('change', function() {
+                console.log("文件选择事件触发");
+                if (fileInput.files.length > 0) {
+                    // 启用提交按钮
+                    submitBtn.disabled = false;
+                    
+                    // 显示文件信息
+                    fileName.textContent = fileInput.files[0].name;
+                    fileInfo.classList.remove('d-none');
+                    
+                    // 突出显示上传区域
+                    dropArea.classList.add('border-primary');
+                    dropArea.style.backgroundColor = '#f0f7ff';
+                    
+                    console.log("已选择文件:", fileInput.files[0].name);
+                } else {
+                    // 如果没有选择文件，禁用提交按钮
+                    submitBtn.disabled = true;
+                    
+                    // 隐藏文件信息
+                    fileInfo.classList.add('d-none');
+                    
+                    // 恢复上传区域样式
+                    dropArea.classList.remove('border-primary');
+                    dropArea.style.backgroundColor = '#f8f9fa';
+                    
+                    console.log("未选择文件");
+                }
+            });
+
+            // 表单提交前再次验证
+            uploadForm.addEventListener('submit', function(e) {
+                console.log("表单提交事件触发");
+                if (fileInput.files.length === 0) {
+                    e.preventDefault();
+                    alert('请先选择一个文件');
+                    console.log("表单提交被阻止，因为没有选择文件");
+                    return false;
+                }
+                console.log("表单提交有效，继续上传文件");
+                // 显示加载提示
+                submitBtn.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> 上传中...';
+                submitBtn.disabled = true;
+                return true;
+            });
+
+            // 支持拖放上传
+            ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+                dropArea.addEventListener(eventName, preventDefaults, false);
+            });
+
+            function preventDefaults(e) {
+                e.preventDefault();
+                e.stopPropagation();
+            }
+
+            // 拖动效果
+            ['dragenter', 'dragover'].forEach(eventName => {
+                dropArea.addEventListener(eventName, highlight, false);
+            });
+
+            ['dragleave', 'drop'].forEach(eventName => {
+                dropArea.addEventListener(eventName, unhighlight, false);
+            });
+
+            function highlight() {
+                dropArea.classList.add('border-primary');
+                dropArea.style.backgroundColor = '#f0f7ff';
+            }
+
+            function unhighlight() {
+                if (fileInput.files.length === 0) {
+                    dropArea.classList.remove('border-primary');
+                    dropArea.style.backgroundColor = '#f8f9fa';
+                }
+            }
+
+            // 处理拖放
+            dropArea.addEventListener('drop', handleDrop, false);
+
+            function handleDrop(e) {
+                console.log("文件拖放事件触发");
+                const dt = e.dataTransfer;
+                const files = dt.files;
+                
+                if (files.length > 0) {
+                    if (!isValidFileType(files[0].name)) {
+                        alert('不支持的文件类型，请选择CSV或Excel文件');
+                        console.log("拖放文件类型无效:", files[0].name);
+                        return;
+                    }
+                    
+                    // 直接设置到文件输入
+                    fileInput.files = files;
+                    
+                    // 触发change事件
+                    const event = new Event('change');
+                    fileInput.dispatchEvent(event);
+                    
+                    console.log("文件通过拖放选择:", files[0].name);
+                }
+            }
+            
+            // 检查文件类型是否有效
+            function isValidFileType(filename) {
+                const validExtensions = ['.csv', '.xlsx'];
+                return validExtensions.some(ext => filename.toLowerCase().endsWith(ext));
+            }
+
+            // 自动关闭警告消息
+            setTimeout(function() {
+                const alerts = document.querySelectorAll('.alert:not(#fileInfo)');
+                alerts.forEach(function(alert) {
+                    if (alert && typeof bootstrap !== 'undefined') {
+                        const bsAlert = new bootstrap.Alert(alert);
+                        bsAlert.close();
+                    }
+                });
+            }, 5000);
+        });
+    </script>
+</body>
+</html> 

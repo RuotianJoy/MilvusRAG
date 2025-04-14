@@ -1,0 +1,607 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Milvus数据浏览 - MilvusRAG</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css">
+    <style>
+        body {
+            background-color: #f8f9fa;
+            font-family: "Microsoft YaHei", sans-serif;
+        }
+        .header {
+            background-color: #ffffff;
+            border-bottom: 1px solid #e9ecef;
+            padding: 1rem 0;
+            margin-bottom: 2rem;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.05);
+        }
+        .card {
+            border: none;
+            border-radius: 10px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
+            margin-bottom: 1.5rem;
+        }
+        .card-header {
+            background-color: #0d6efd;
+            color: white;
+            border-radius: 10px 10px 0 0 !important;
+            padding: 1rem;
+        }
+        .collection-card {
+            cursor: pointer;
+            transition: transform 0.3s;
+            height: 100%;
+        }
+        .collection-card:hover {
+            transform: translateY(-5px);
+        }
+        .footer {
+            background-color: #f1f1f1;
+            padding: 2rem 0;
+            margin-top: 3rem;
+        }
+        .table-responsive {
+            border-radius: 0.5rem;
+            overflow: hidden;
+        }
+        .alert {
+            margin-bottom: 20px;
+        }
+        .stat-card {
+            background-color: #f8f9fa;
+            border-radius: 10px;
+            padding: 1rem;
+            margin-bottom: 1rem;
+            text-align: center;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+        }
+        .stat-card .value {
+            font-size: 2rem;
+            font-weight: bold;
+            color: #0d6efd;
+        }
+        .stat-card .label {
+            color: #6c757d;
+        }
+        .loading {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 300px;
+        }
+        .schema-info {
+            background-color: #f8f9fa;
+            border-radius: 10px;
+            padding: 1rem;
+            margin-bottom: 1rem;
+        }
+        .schema-table {
+            margin-bottom: 0;
+        }
+        .tab-content {
+            padding: 1.5rem;
+            background-color: white;
+            border-radius: 0 0 10px 10px;
+        }
+    </style>
+</head>
+<body>
+    <!-- 顶部导航栏 -->
+    <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
+        <div class="container">
+            <a class="navbar-brand" href="{{ url_for('index') }}">
+                <i class="bi bi-database-fill"></i> MilvusRAG
+            </a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav ms-auto">
+                    <li class="nav-item">
+                        <a class="nav-link" href="{{ url_for('index') }}">
+                            <i class="bi bi-house-fill"></i> 首页
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link active" href="{{ url_for('milvus_data') }}">
+                            <i class="bi bi-database-fill"></i> Milvus数据
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="{{ url_for('test_history') }}">
+                            <i class="bi bi-clock-history"></i> 历史记录
+                        </a>
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </nav>
+
+    <!-- 页面头部 -->
+    <div class="header">
+        <div class="container">
+            <h1 class="text-center">Milvus数据浏览</h1>
+            <p class="text-center text-muted">查看向量数据库中的集合及其内容</p>
+        </div>
+    </div>
+
+    <!-- 主要内容 -->
+    <div class="container">
+        {% if not collections %}
+            <div class="alert alert-warning">
+                <i class="bi bi-exclamation-triangle-fill"></i> 未找到任何集合，请确保Milvus服务正在运行且已导入数据。
+            </div>
+        {% else %}
+            <!-- 集合列表 -->
+            <div class="row mb-4">
+                <div class="col-12">
+                    <div class="card">
+                        <div class="card-header d-flex justify-content-between align-items-center">
+                            <h5 class="mb-0"><i class="bi bi-collection"></i> 可用集合</h5>
+                            <span class="badge bg-light text-dark">{{ collections|length }}个集合</span>
+                        </div>
+                        <div class="card-body">
+                            <div class="row">
+                                {% for collection in collections %}
+                                    <div class="col-md-4 mb-4">
+                                        <div class="card collection-card" onclick="loadCollectionInfo('{{ collection }}')">
+                                            <div class="card-body text-center">
+                                                <i class="bi bi-database-fill mb-3" style="font-size: 2rem; color: #0d6efd;"></i>
+                                                <h5 class="card-title">{{ collection }}</h5>
+                                                <p class="card-text text-muted">点击查看详情</p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                {% endfor %}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 选中集合详情 -->
+            <div id="collectionDetailCard" style="display: none;">
+                <div class="card mb-4">
+                    <div class="card-header">
+                        <h5 class="mb-0" id="selectedCollectionTitle"><i class="bi bi-info-circle"></i> 集合详情</h5>
+                    </div>
+                    <div class="card-body">
+                        <!-- 加载动画 -->
+                        <div id="loadingSpinner" class="loading">
+                            <div class="spinner-border text-primary" role="status">
+                                <span class="visually-hidden">加载中...</span>
+                            </div>
+                        </div>
+                        
+                        <!-- 集合信息 -->
+                        <div id="collectionInfo" style="display: none;">
+                            <div class="row mb-4">
+                                <div class="col-md-4">
+                                    <div class="stat-card">
+                                        <div class="value" id="rowCount">-</div>
+                                        <div class="label">总行数</div>
+                                    </div>
+                                </div>
+                                <div class="col-md-4">
+                                    <div class="stat-card">
+                                        <div class="value" id="fieldCount">-</div>
+                                        <div class="label">字段数</div>
+                                    </div>
+                                </div>
+                                <div class="col-md-4">
+                                    <div class="stat-card">
+                                        <div class="value" id="indexCount">-</div>
+                                        <div class="label">索引数</div>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <ul class="nav nav-tabs" id="collectionTabs" role="tablist">
+                                <li class="nav-item" role="presentation">
+                                    <button class="nav-link active" id="schema-tab" data-bs-toggle="tab" data-bs-target="#schema" type="button" role="tab">集合结构</button>
+                                </li>
+                                <li class="nav-item" role="presentation">
+                                    <button class="nav-link" id="data-tab" data-bs-toggle="tab" data-bs-target="#data" type="button" role="tab">数据样本</button>
+                                </li>
+                                <li class="nav-item" role="presentation">
+                                    <button class="nav-link" id="index-tab" data-bs-toggle="tab" data-bs-target="#index" type="button" role="tab">索引信息</button>
+                                </li>
+                            </ul>
+                            
+                            <div class="tab-content" id="collectionTabContent">
+                                <!-- 集合结构 -->
+                                <div class="tab-pane fade show active" id="schema" role="tabpanel" aria-labelledby="schema-tab">
+                                    <div class="schema-info">
+                                        <h6 class="mb-3">字段结构</h6>
+                                        <div class="table-responsive">
+                                            <table class="table table-striped schema-table" id="fieldsTable">
+                                                <thead>
+                                                    <tr>
+                                                        <th>字段名</th>
+                                                        <th>数据类型</th>
+                                                        <th>是否主键</th>
+                                                        <th>其他信息</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody>
+                                                    <!-- 动态填充 -->
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                <!-- 数据样本 -->
+                                <div class="tab-pane fade" id="data" role="tabpanel" aria-labelledby="data-tab">
+                                    <div class="mb-3 d-flex justify-content-between align-items-center">
+                                        <div>
+                                            <h6>数据样本</h6>
+                                            <p class="text-muted">注意：向量字段不会显示</p>
+                                        </div>
+                                        <div class="d-flex align-items-center">
+                                            <span class="me-2">每页行数：</span>
+                                            <select id="pageSize" class="form-select form-select-sm" style="width: auto;">
+                                                <option value="10">10</option>
+                                                <option value="20">20</option>
+                                                <option value="50">50</option>
+                                                <option value="100">100</option>
+                                            </select>
+                                        </div>
+                                    </div>
+                                    
+                                    <div class="table-responsive">
+                                        <table class="table table-striped" id="dataTable">
+                                            <thead>
+                                                <!-- 动态填充 -->
+                                            </thead>
+                                            <tbody>
+                                                <!-- 动态填充 -->
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                    
+                                    <!-- 分页控件 -->
+                                    <div id="paginationControls" class="d-flex justify-content-between align-items-center mt-3">
+                                        <div>
+                                            显示 <span id="startRecord">0</span>-<span id="endRecord">0</span> 条，共 <span id="totalRecords">0</span> 条记录
+                                        </div>
+                                        <nav aria-label="数据分页">
+                                            <ul class="pagination pagination-sm mb-0">
+                                                <li class="page-item disabled" id="prevPage">
+                                                    <a class="page-link" href="#" tabindex="-1">上一页</a>
+                                                </li>
+                                                <li class="page-item disabled" id="nextPage">
+                                                    <a class="page-link" href="#">下一页</a>
+                                                </li>
+                                            </ul>
+                                        </nav>
+                                    </div>
+                                </div>
+                                
+                                <!-- 索引信息 -->
+                                <div class="tab-pane fade" id="index" role="tabpanel" aria-labelledby="index-tab">
+                                    <div id="indexInfo">
+                                        <!-- 动态填充 -->
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        {% endif %}
+    </div>
+
+
+
+    <!-- JavaScript依赖 -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        // 当前加载的集合名称和页面状态
+        let currentCollection = '';
+        let currentPage = 1;
+        let totalPages = 1;
+        let pageSize = 10;
+
+        // 加载集合信息
+        function loadCollectionInfo(collectionName) {
+            // 保存当前集合名称
+            currentCollection = collectionName;
+            currentPage = 1; // 重置当前页
+
+            // 显示详情卡片和加载动画
+            document.getElementById('collectionDetailCard').style.display = 'block';
+            document.getElementById('loadingSpinner').style.display = 'flex';
+            document.getElementById('collectionInfo').style.display = 'none';
+            
+            // 设置标题
+            document.getElementById('selectedCollectionTitle').innerHTML = `<i class="bi bi-info-circle"></i> ${collectionName} 集合详情`;
+            
+            // 滚动到详情卡片
+            document.getElementById('collectionDetailCard').scrollIntoView({behavior: 'smooth'});
+            
+            // 请求集合信息
+            fetch(`/api/collection/${collectionName}`)
+                .then(response => response.json())
+                .then(data => {
+                    if (data.status === 'error') {
+                        alert('获取集合信息失败: ' + data.message);
+                        return;
+                    }
+                    
+                    // 更新统计信息
+                    document.getElementById('rowCount').textContent = data.row_count.toLocaleString();
+                    document.getElementById('fieldCount').textContent = data.fields.length;
+                    document.getElementById('indexCount').textContent = data.indexes.length;
+                    
+                    // 更新字段表
+                    const fieldsTable = document.getElementById('fieldsTable').getElementsByTagName('tbody')[0];
+                    fieldsTable.innerHTML = '';
+                    
+                    data.fields.forEach(field => {
+                        const row = fieldsTable.insertRow();
+                        
+                        const nameCell = row.insertCell(0);
+                        nameCell.textContent = field.name;
+                        
+                        const typeCell = row.insertCell(1);
+                        typeCell.textContent = field.type;
+                        
+                        const primaryCell = row.insertCell(2);
+                        primaryCell.innerHTML = field.is_primary ? 
+                            '<span class="badge bg-success">是</span>' : 
+                            '<span class="badge bg-secondary">否</span>';
+                        
+                        const paramsCell = row.insertCell(3);
+                        if (field.params) {
+                            const params = [];
+                            for (const [key, value] of Object.entries(field.params)) {
+                                params.push(`${key}: ${value}`);
+                            }
+                            paramsCell.textContent = params.join(', ');
+                        } else {
+                            paramsCell.textContent = '-';
+                        }
+                    });
+                    
+                    // 更新索引信息
+                    const indexInfo = document.getElementById('indexInfo');
+                    if (data.indexes.length > 0) {
+                        let indexHTML = '<ul class="list-group">';
+                        data.indexes.forEach(index => {
+                            indexHTML += `
+                                <li class="list-group-item">
+                                    <h6 class="mb-2">字段: ${index.field}</h6>
+                                    <div class="table-responsive">
+                                        <table class="table table-sm">
+                                            <thead>
+                                                <tr>
+                                                    <th>属性</th>
+                                                    <th>值</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                            `;
+                            
+                            for (const [key, value] of Object.entries(index.info)) {
+                                if (key === 'params' && typeof value === 'object') {
+                                    for (const [paramKey, paramValue] of Object.entries(value)) {
+                                        indexHTML += `
+                                            <tr>
+                                                <td>params.${paramKey}</td>
+                                                <td>${paramValue}</td>
+                                            </tr>
+                                        `;
+                                    }
+                                } else {
+                                    indexHTML += `
+                                        <tr>
+                                            <td>${key}</td>
+                                            <td>${value}</td>
+                                        </tr>
+                                    `;
+                                }
+                            }
+                            
+                            indexHTML += `
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </li>
+                            `;
+                        });
+                        indexHTML += '</ul>';
+                        indexInfo.innerHTML = indexHTML;
+                    } else {
+                        indexInfo.innerHTML = '<div class="alert alert-info">该集合没有索引信息</div>';
+                    }
+                    
+                    // 加载数据样本
+                    loadCollectionData(collectionName, currentPage, pageSize);
+                    
+                    // 隐藏加载动画，显示信息
+                    document.getElementById('loadingSpinner').style.display = 'none';
+                    document.getElementById('collectionInfo').style.display = 'block';
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                    alert('获取集合信息时出错');
+                    document.getElementById('loadingSpinner').style.display = 'none';
+                });
+        }
+        
+        // 加载集合数据样本（支持分页）
+        function loadCollectionData(collectionName, page = 1, pageSize = 10) {
+            // 显示数据加载中的提示
+            const dataTable = document.getElementById('dataTable');
+            const tbody = dataTable.getElementsByTagName('tbody')[0];
+            tbody.innerHTML = '<tr><td colspan="100%" class="text-center">数据加载中...</td></tr>';
+            
+            // 保存当前集合名称供分页使用
+            currentCollection = collectionName;
+            
+            console.log(`加载集合数据: 集合=${collectionName}, 页码=${page}, 每页大小=${pageSize}`);
+            
+            fetch(`/api/collection/${collectionName}/data?page=${page}&page_size=${pageSize}`)
+                .then(response => response.json())
+                .then(data => {
+                    if (data.status === 'error') {
+                        alert('获取数据样本失败: ' + data.message);
+                        return;
+                    }
+                    
+                    console.log('获取到API响应:', data);
+                    console.log(`分页信息: 当前页=${data.current_page}, 总页数=${data.total_pages}, 总记录数=${data.total_count}`);
+                    
+                    const thead = dataTable.getElementsByTagName('thead')[0];
+                    tbody.innerHTML = '';
+                    thead.innerHTML = '';
+                    
+                    if (data.data.length === 0) {
+                        tbody.innerHTML = '<tr><td colspan="100%" class="text-center">没有数据</td></tr>';
+                        return;
+                    }
+                    
+                    // 更新分页信息
+                    totalPages = data.total_pages;
+                    currentPage = data.current_page;
+                    pageSize = data.page_size;
+                    
+                    // 更新分页控件
+                    updatePagination(data.current_page, data.total_pages, data.total_count);
+                    
+                    // 获取所有字段
+                    const fields = Object.keys(data.data[0]);
+                    
+                    // 创建表头
+                    const headerRow = thead.insertRow();
+                    fields.forEach(field => {
+                        const th = document.createElement('th');
+                        th.textContent = field;
+                        headerRow.appendChild(th);
+                    });
+                    
+                    // 添加数据行
+                    data.data.forEach(item => {
+                        const row = tbody.insertRow();
+                        fields.forEach(field => {
+                            const cell = row.insertCell();
+                            let value = item[field];
+                            
+                            // 截断过长的值
+                            if (typeof value === 'string' && value.length > 100) {
+                                value = value.substring(0, 100) + '...';
+                            }
+                            
+                            cell.textContent = value;
+                        });
+                    });
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                    alert('获取数据样本时出错');
+                });
+        }
+        
+        // 更新分页控件
+        function updatePagination(currentPage, totalPages, totalCount) {
+            console.log(`更新分页控件: 当前页=${currentPage}, 总页数=${totalPages}, 总记录数=${totalCount}`);
+            
+            const startRecord = totalCount > 0 ? (currentPage - 1) * pageSize + 1 : 0;
+            const endRecord = Math.min(startRecord + pageSize - 1, totalCount);
+            
+            // 更新显示范围
+            document.getElementById('startRecord').textContent = startRecord;
+            document.getElementById('endRecord').textContent = endRecord;
+            document.getElementById('totalRecords').textContent = totalCount;
+            
+            // 获取分页区域
+            const pagination = document.querySelector('#paginationControls .pagination');
+            const prevPage = document.getElementById('prevPage');
+            const nextPage = document.getElementById('nextPage');
+            
+            // 如果总页数小于等于1，隐藏整个分页控件
+            document.getElementById('paginationControls').style.display = totalPages <= 1 ? 'none' : 'flex';
+            
+            if (totalPages <= 1) {
+                return; // 只有一页，不需要显示分页
+            }
+            
+            // 更新上一页/下一页按钮状态
+            if (currentPage <= 1) {
+                prevPage.classList.add('disabled');
+            } else {
+                prevPage.classList.remove('disabled');
+            }
+            
+            if (currentPage >= totalPages) {
+                nextPage.classList.add('disabled');
+            } else {
+                nextPage.classList.remove('disabled');
+            }
+            
+            // 清除现有的页码按钮
+            const pagesToRemove = document.querySelectorAll('#paginationControls .pagination .page-number');
+            pagesToRemove.forEach(page => page.remove());
+            
+            // 动态创建页码按钮（最多显示5个页码）
+            const maxVisiblePages = 5;
+            let startPage = Math.max(1, currentPage - Math.floor(maxVisiblePages / 2));
+            let endPage = Math.min(totalPages, startPage + maxVisiblePages - 1);
+            
+            if (endPage - startPage + 1 < maxVisiblePages) {
+                startPage = Math.max(1, endPage - maxVisiblePages + 1);
+            }
+            
+            console.log(`显示页码范围: ${startPage}-${endPage}, 最大显示页码数: ${maxVisiblePages}`);
+            
+            // 插入页码按钮
+            const nextPageElement = document.getElementById('nextPage');
+            for (let i = startPage; i <= endPage; i++) {
+                const li = document.createElement('li');
+                li.className = `page-item page-number ${i === currentPage ? 'active' : ''}`;
+                li.innerHTML = `<a class="page-link" href="#" data-page="${i}">${i}</a>`;
+                pagination.insertBefore(li, nextPageElement);
+            }
+        }
+
+        // 注册事件处理程序
+        document.addEventListener('DOMContentLoaded', function() {
+            // 注册分页事件
+            document.querySelector('#paginationControls .pagination').addEventListener('click', function(e) {
+                e.preventDefault();
+                
+                if (e.target.tagName === 'A') {
+                    const pageItem = e.target.closest('.page-item');
+                    
+                    if (pageItem.classList.contains('disabled')) {
+                        return;
+                    }
+                    
+                    if (pageItem.id === 'prevPage') {
+                        console.log(`点击上一页: ${currentPage-1}`);
+                        loadCollectionData(currentCollection, currentPage - 1, pageSize);
+                    } else if (pageItem.id === 'nextPage') {
+                        console.log(`点击下一页: ${currentPage+1}`);
+                        loadCollectionData(currentCollection, currentPage + 1, pageSize);
+                    } else if (pageItem.classList.contains('page-number')) {
+                        const page = parseInt(e.target.dataset.page);
+                        console.log(`点击页码: ${page}`);
+                        loadCollectionData(currentCollection, page, pageSize);
+                    }
+                }
+            });
+            
+            // 注册页面大小变更事件
+            document.getElementById('pageSize').addEventListener('change', function() {
+                pageSize = parseInt(this.value);
+                console.log(`修改每页条数: ${pageSize}`);
+                loadCollectionData(currentCollection, 1, pageSize);
+            });
+        });
+    </script>
+</body>
+</html>

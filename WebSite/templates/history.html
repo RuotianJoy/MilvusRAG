@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>测试历史记录 - MilvusRAG</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css">
+    <style>
+        body {
+            background-color: #f8f9fa;
+            font-family: "Microsoft YaHei", sans-serif;
+        }
+        .header {
+            background-color: #ffffff;
+            border-bottom: 1px solid #e9ecef;
+            padding: 1rem 0;
+            margin-bottom: 2rem;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.05);
+        }
+        .card {
+            border: none;
+            border-radius: 10px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
+            margin-bottom: 1.5rem;
+        }
+        .card-header {
+            background-color: #0d6efd;
+            color: white;
+            border-radius: 10px 10px 0 0 !important;
+            padding: 1rem;
+        }
+        .history-item {
+            transition: transform 0.3s;
+            cursor: pointer;
+        }
+        .history-item:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 8px 15px rgba(0, 0, 0, 0.1);
+        }
+        .metric-badge {
+            font-size: 0.8rem;
+            padding: 5px 8px;
+            margin-right: 5px;
+            border-radius: 20px;
+        }
+        .footer {
+            background-color: #f1f1f1;
+            padding: 2rem 0;
+            margin-top: 3rem;
+        }
+        .empty-state {
+            padding: 3rem;
+            text-align: center;
+            color: #6c757d;
+        }
+        .empty-state .icon {
+            font-size: 4rem;
+            margin-bottom: 1rem;
+        }
+        .no-results {
+            color: #6c757d;
+            text-align: center;
+            padding: 2rem 0;
+        }
+    </style>
+</head>
+<body>
+    <!-- 顶部导航栏 -->
+    <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
+        <div class="container">
+            <a class="navbar-brand" href="{{ url_for('index') }}">
+                <i class="bi bi-database-fill"></i> MilvusRAG
+            </a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav ms-auto">
+                    <li class="nav-item">
+                        <a class="nav-link" href="{{ url_for('index') }}">
+                            <i class="bi bi-house-fill"></i> 首页
+                        </a>
+                    </li>
+
+                    <li class="nav-item">
+                        <a class="nav-link" href="{{ url_for('milvus_data') }}">
+                            <i class="bi bi-database-fill"></i> Milvus数据
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link active" href="{{ url_for('test_history') }}">
+                            <i class="bi bi-clock-history"></i> 历史记录
+                        </a>
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </nav>
+
+    <!-- 页面头部 -->
+    <div class="header">
+        <div class="container">
+            <h1 class="text-center">测试历史记录</h1>
+            <p class="text-center text-muted">查看所有测试结果的历史记录</p>
+        </div>
+    </div>
+
+    <!-- 消息提示区域 -->
+    <div class="container mb-4">
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                {% for category, message in messages %}
+                    <div class="alert alert-{{ category if category != 'message' else 'info' }} alert-dismissible fade show">
+                        {{ message }}
+                        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                    </div>
+                {% endfor %}
+            {% endif %}
+        {% endwith %}
+    </div>
+
+    <!-- 主要内容 -->
+    <div class="container">
+        <div class="row">
+            <div class="col-lg-12">
+                <div class="card">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <h5 class="mb-0"><i class="bi bi-clock-history"></i> 历史测试结果</h5>
+                        <a href="{{ url_for('index') }}" class="btn btn-sm btn-light">
+                            <i class="bi bi-plus-circle"></i> 新测试
+                        </a>
+                    </div>
+                    <div class="card-body">
+                        {% if history %}
+                            <div class="table-responsive">
+                                <table class="table table-hover">
+                                    <thead>
+                                        <tr>
+                                            <th>时间</th>
+                                            <th>文件</th>
+                                            <th>问题数</th>
+                                            <th>平均得分</th>
+                                            <th>操作</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {% for item in history %}
+                                            <tr class="align-middle">
+                                                <td>{{ item.timestamp }}</td>
+                                                <td>{{ item.filename }}</td>
+                                                <td>{{ item.question_count }}</td>
+                                                <td>
+                                                    {% if item.avg_scores %}
+                                                        <span class="badge bg-info metric-badge">ROUGE-1: {{ "%.4f"|format(item.avg_scores.avg_rouge_1) }}</span>
+                                                        <span class="badge bg-success metric-badge">ROUGE-L: {{ "%.4f"|format(item.avg_scores.avg_rouge_l) }}</span>
+                                                    {% else %}
+                                                        <span class="badge bg-secondary">无数据</span>
+                                                    {% endif %}
+                                                </td>
+                                                <td>
+                                                    <a href="{{ url_for('test_result', test_id=item.id) }}" class="btn btn-sm btn-primary">
+                                                        <i class="bi bi-eye"></i> 查看
+                                                    </a>
+                                                    <a href="/uploads/{{ item.result_file }}" class="btn btn-sm btn-success" download>
+                                                        <i class="bi bi-download"></i> 下载
+                                                    </a>
+                                                </td>
+                                            </tr>
+                                        {% endfor %}
+                                    </tbody>
+                                </table>
+                            </div>
+                        {% else %}
+                            <div class="empty-state">
+                                <div class="icon">
+                                    <i class="bi bi-hourglass"></i>
+                                </div>
+                                <h4>暂无测试记录</h4>
+                                <p>您尚未进行任何测试，请返回首页上传测试文件并开始测试。</p>
+                                <a href="{{ url_for('index') }}" class="btn btn-primary mt-3">
+                                    <i class="bi bi-upload"></i> 上传测试文件
+                                </a>
+                            </div>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+
+    <!-- JavaScript依赖 -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            // 自动关闭警告消息
+            setTimeout(function() {
+                const alerts = document.querySelectorAll('.alert');
+                alerts.forEach(function(alert) {
+                    if (alert && typeof bootstrap !== 'undefined') {
+                        const bsAlert = new bootstrap.Alert(alert);
+                        bsAlert.close();
+                    }
+                });
+            }, 5000);
+        });
+
+        // 指标中英文映射
+        const metricNameMap = {
+            'avg_rouge_1': 'ROUGE-1（词级匹配）',
+            'avg_rouge_2': 'ROUGE-2（二元组匹配）',
+            'avg_rouge_l': 'ROUGE-L（最长公共子序列）',
+            'avg_keyword_match': '关键词匹配率',
+            'avg_precision_1': '精准率（词级）',
+            'avg_recall_1': '召回率（词级）',
+            'avg_precision_l': '精准率（序列级）',
+            'avg_recall_l': '召回率（序列级）',
+            'avg_keyword_precision': '关键词精准率',
+            'avg_keyword_recall': '关键词召回率'
+        };
+
+        document.addEventListener('DOMContentLoaded', function() {
+            // 修改表格中显示的指标名称
+            const metricBadges = document.querySelectorAll('.metric-badge');
+            metricBadges.forEach(badge => {
+                const text = badge.textContent;
+                const parts = text.split(':');
+                
+                if (parts.length === 2) {
+                    const metricKey = parts[0].trim().toLowerCase().replace('-', '_');
+                    const value = parts[1].trim();
+                    
+                    // 查找映射的中文名称
+                    for (const [key, chineseName] of Object.entries(metricNameMap)) {
+                        if (key.toLowerCase().includes(metricKey)) {
+                            badge.textContent = chineseName + ': ' + value;
+                            break;
+                        }
+                    }
+                }
+            });
+        });
+    </script>
+</body>
+</html> 

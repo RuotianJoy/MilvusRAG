@@ -1,0 +1,195 @@
+/* MilvusRAG 样式表 */
+
+/* 全局样式 */
+body {
+    background-color: #f8f9fa;
+    font-family: "Microsoft YaHei", sans-serif;
+}
+
+.header {
+    background-color: #ffffff;
+    border-bottom: 1px solid #e9ecef;
+    padding: 1rem 0;
+    margin-bottom: 2rem;
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.05);
+}
+
+.footer {
+    background-color: #f1f1f1;
+    padding: 2rem 0;
+    margin-top: 3rem;
+}
+
+/* 卡片样式 */
+.card {
+    border: none;
+    border-radius: 10px;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
+    margin-bottom: 1.5rem;
+    transition: transform 0.3s;
+}
+
+.card:hover {
+    transform: translateY(-5px);
+}
+
+.card-header {
+    background-color: #0d6efd;
+    color: white;
+    border-radius: 10px 10px 0 0 !important;
+    padding: 1rem;
+}
+
+/* 图标样式 */
+.feature-icon {
+    font-size: 2.5rem;
+    margin-bottom: 1rem;
+    color: #0d6efd;
+}
+
+/* 上传区域 */
+.upload-area {
+    border: 2px dashed #dee2e6;
+    padding: 2rem;
+    text-align: center;
+    background-color: #f8f9fa;
+    border-radius: 10px;
+    margin-bottom: 2rem;
+    transition: all 0.3s;
+}
+
+.upload-area:hover {
+    border-color: #0d6efd;
+    background-color: #f0f7ff;
+}
+
+/* 提示框 */
+.alerts-container {
+    position: fixed;
+    top: 70px;
+    right: 20px;
+    z-index: 1050;
+    max-width: 350px;
+}
+
+/* 测试项样式 */
+.test-item {
+    border-left: 3px solid #dee2e6;
+    padding-left: 1rem;
+    margin-bottom: 1.5rem;
+    transition: all 0.3s;
+}
+
+.test-item:hover {
+    border-left-color: #0d6efd;
+}
+
+.test-item.processing {
+    border-left-color: #ffc107;
+    background-color: #fff8e5;
+}
+
+.test-item.completed {
+    border-left-color: #198754;
+    background-color: #f1f9f4;
+}
+
+.test-details {
+    border-top: 1px solid #eee;
+    margin-top: 10px;
+    padding-top: 10px;
+}
+
+/* 指标卡片 */
+.metric-card {
+    padding: 0.75rem;
+    background-color: #f8f9fa;
+    border-radius: 5px;
+    margin-bottom: 0.5rem;
+}
+
+.progress {
+    height: 10px;
+    margin-bottom: 1rem;
+}
+
+/* 控制面板 */
+.controls {
+    position: sticky;
+    top: 20px;
+    z-index: 100;
+}
+
+/* 结果区域 */
+.results-container {
+    background-color: white;
+    border-radius: 10px;
+    padding: 2rem;
+    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.05);
+}
+
+/* 加载动画 */
+.spinner-container {
+    display: none;
+    text-align: center;
+    margin: 2rem 0;
+}
+
+/* Milvus数据页面 */
+.collection-card {
+    cursor: pointer;
+    transition: transform 0.3s;
+    height: 100%;
+}
+
+.collection-card:hover {
+    transform: translateY(-5px);
+}
+
+.table-responsive {
+    border-radius: 0.5rem;
+    overflow: hidden;
+}
+
+.stat-card {
+    background-color: #f8f9fa;
+    border-radius: 10px;
+    padding: 1rem;
+    margin-bottom: 1rem;
+    text-align: center;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+}
+
+.stat-card .value {
+    font-size: 2rem;
+    font-weight: bold;
+    color: #0d6efd;
+}
+
+.stat-card .label {
+    color: #6c757d;
+}
+
+.loading {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 300px;
+}
+
+.schema-info {
+    background-color: #f8f9fa;
+    border-radius: 10px;
+    padding: 1rem;
+    margin-bottom: 1rem;
+}
+
+.schema-table {
+    margin-bottom: 0;
+}
+
+.tab-content {
+    padding: 1.5rem;
+    background-color: white;
+    border-radius: 0 0 10px 10px;
+} 
