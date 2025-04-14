@@ -6,6 +6,9 @@ import numpy as np
 import argparse
 from sentence_transformers import SentenceTransformer
 
+# 获取项目根目录
+project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
 # 加载BERT模型
 def load_bert_model():
     try:
@@ -121,12 +124,19 @@ def main():
     # 创建命令行参数解析器
     parser = argparse.ArgumentParser(description="处理Wiki美国高校数据并保存为JSON文件")
     parser.add_argument("--use-bert", action="store_true", help="是否使用BERT模型生成嵌入向量")
-    parser.add_argument("--output", default="Wiki美国高校初步数据_processed.json", help="输出JSON文件路径")
+    
+    # 设置默认输出路径到DataProcessed文件夹
+    data_processed_dir = os.path.join(project_root, "DataProcessed")
+    # 确保输出目录存在
+    os.makedirs(data_processed_dir, exist_ok=True)
+    default_output = os.path.join(data_processed_dir, "Wiki美国高校初步数据_processed.json")
+    
+    parser.add_argument("--output", default=default_output, help="输出JSON文件路径")
     args = parser.parse_args()
     
     # 设置文件路径
-    input_file = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 
-                            "大学官方数据爬取", 
+    input_file = os.path.join(project_root, 
+                            "DataOriginal/Data",
                             "直接从Wiki获取的US高校初步数据US高校初步数据_with_website.JSON")
     
     # 读取数据

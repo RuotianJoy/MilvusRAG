@@ -12,6 +12,7 @@ import sys
 import json
 import time
 import numpy as np
+import configparser
 from pymilvus import (
     connections,
     FieldSchema, CollectionSchema, DataType,
@@ -24,12 +25,27 @@ project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.append(project_root)
 
 # 输入输出文件路径
-processed_file = os.path.join(project_root, "数据处理", "ARWU2024_processed.json")
+processed_file = os.path.join(project_root, "DataProcessed", "ARWU2024_processed.json")
+config_file = os.path.join(project_root, "Config", "Milvus.ini")
 
-# 连接参数
-_HOST = 'localhost'
-_PORT = '19530'
-_PARTITION_NAME = "ARWU2024"
+# 读取配置文件
+def load_config():
+    """读取配置文件"""
+    config = configparser.ConfigParser()
+
+    config.read(config_file, encoding='utf-8')
+    return {
+        'host': config.get('connection', 'host', fallback=''),
+        'port': config.get('connection', 'port', fallback=''),
+        'partition_name': config.get('Milvus', 'partition_name', fallback='ARWU2024')
+    }
+
+
+# 加载配置
+milvus_config = load_config()
+_HOST = milvus_config['host']
+_PORT = milvus_config['port']
+_PARTITION_NAME = milvus_config['partition_name']
 
 def connect_milvus():
     """连接到Milvus服务器"""

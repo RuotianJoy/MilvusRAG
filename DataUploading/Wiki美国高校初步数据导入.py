@@ -1,19 +1,42 @@
 import json
 import os
 import argparse
+import configparser
 from tqdm import tqdm
 import numpy as np
 from pymilvus import connections, Collection, FieldSchema, CollectionSchema, DataType, utility
 
+# 获取项目根目录
+project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+# 配置文件路径
+config_file = os.path.join(project_root, "Config", "Milvus.ini")
+# 默认数据文件路径
+default_data_file = os.path.join(project_root, "DataProcessed", "Wiki美国高校初步数据_processed.json")
+
+# 读取配置文件
+def load_config():
+    """读取配置文件"""
+    config = configparser.ConfigParser()
+    config.read(config_file, encoding='utf-8')
+    return {
+        'host': config.get('connection', 'host', fallback='localhost'),
+        'port': config.get('connection', 'port', fallback='19530')
+    }
+
 # 连接到Milvus
-def connect_to_milvus(host="localhost", port="19530"):
+def connect_to_milvus():
+    # 加载配置
+    milvus_config = load_config()
+    host = milvus_config['host']
+    port = milvus_config['port']
+    
     try:
         connections.connect(
             alias="default", 
             host=host,
             port=port
         )
-        print("成功连接到Milvus")
+        print(f"成功连接到Milvus ({host}:{port})")
         return True
     except Exception as e:
         print(f"连接Milvus失败: {e}")
@@ -189,9 +212,7 @@ def test_query(collection):
 
 def main():
     parser = argparse.ArgumentParser(description="将处理后的Wiki美国高校数据导入到Milvus")
-    parser.add_argument("--input", default="Wiki美国高校初步数据_processed.json", help="处理后的JSON数据文件路径")
-    parser.add_argument("--host", default="localhost", help="Milvus服务器主机名")
-    parser.add_argument("--port", default="19530", help="Milvus服务器端口")
+    parser.add_argument("--input", default=default_data_file, help="处理后的JSON数据文件路径")
     parser.add_argument("--collection", default="us_colleges", help="Milvus集合名称")
     parser.add_argument("--recreate", action="store_true", help="是否重新创建集合（如果已存在）")
     parser.add_argument("--index-type", default="HNSW", choices=["HNSW", "IVF_FLAT"], help="索引类型")
@@ -199,17 +220,28 @@ def main():
     parser.add_argument("--test", action="store_true", help="是否进行查询测试")
     args = parser.parse_args()
     
-    # 如果文件不存在且没有提供完整路径，尝试在当前目录中查找
+    # 检查输入文件是否存在
     input_file = args.input
     if not os.path.exists(input_file):
-        script_dir = os.path.dirname(os.path.abspath(__file__))
-        input_file = os.path.join(script_dir, args.input)
+        # 如果用户指定了一个文件名（而不是路径），尝试在数据处理目录中查找
+        data_dir = os.path.join(project_root, "数据处理")
+        input_file = os.path.join(data_dir, os.path.basename(args.input))
         if not os.path.exists(input_file):
-            print(f"无法找到输入文件: {args.input}")
-            return
+            # 最后尝试在脚本所在目录查找
+            script_dir = os.path.dirname(os.path.abspath(__file__))
+            input_file = os.path.join(script_dir, os.path.basename(args.input))
+            if not os.path.exists(input_file):
+                print(f"无法找到输入文件: {args.input}")
+                print(f"已尝试以下路径:")
+                print(f"1. {args.input}")
+                print(f"2. {os.path.join(data_dir, os.path.basename(args.input))}")
+                print(f"3. {os.path.join(script_dir, os.path.basename(args.input))}")
+                return
     
-    # 连接到Milvus
-    if not connect_to_milvus(args.host, args.port):
+    print(f"使用数据文件: {input_file}")
+    
+    # 加载配置并连接到Milvus
+    if not connect_to_milvus():
         return
     
     # 创建集合 - 强制重新创建集合以应用新的字段长度限制
@@ -232,45 +264,13 @@ def main():
     if args.test:
         test_query(collection)
     
+    # 获取连接配置，用于显示示例
+    milvus_config = load_config()
+    host = milvus_config['host']
+    port = milvus_config['port']
+    
     print("\n导入完成！数据已成功导入到Milvus数据库。")
-    print("可以使用以下命令进行向量相似度搜索：")
-    print(f"""
-from pymilvus import connections, Collection
-import numpy as np
 
-# 连接到Milvus
-connections.connect(host="{args.host}", port="{args.port}")
-
-# 加载集合
-collection = Collection("{args.collection}")
-collection.load()
-
-# 生成一个随机向量作为目标向量（实际使用时应该使用真实的查询向量）
-target_vector = np.random.random(384).tolist()
-
-# 向量相似度搜索（寻找相似学校）
-results = collection.search(
-    data=[target_vector],  # 目标向量
-    anns_field="text_vector",
-    param={{"metric_type": "COSINE", "params": {{"ef": 10}}}},
-    limit=5,
-    expr="state == 'California'",  # 可选过滤条件
-    output_fields=["name", "location", "type", "control", "enrollment"]
-)
-
-# 显示结果
-for i, hits in enumerate(results):
-    for hit in hits:
-        print(f"ID: {{hit.id}}, 距离: {{hit.distance}}")
-        print(f"名称: {{hit.entity.get('name')}}")
-        print(f"位置: {{hit.entity.get('location')}}, {{hit.entity.get('state')}}")
-        print(f"类型: {{hit.entity.get('type')}}, {{hit.entity.get('control')}}")
-        print(f"学生数: {{hit.entity.get('enrollment')}}")
-        print("-------------------")
-
-# 释放集合
-collection.release()
-""")
 
 if __name__ == "__main__":
     main() 

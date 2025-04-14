@@ -9,8 +9,8 @@ from pymilvus import FieldSchema, CollectionSchema, DataType, Collection, connec
 # 使用更可靠的路径构建方式
 current_dir = os.path.dirname(os.path.abspath(__file__))
 project_root = os.path.dirname(current_dir)
-input_file = os.path.join(project_root, '第三方排名网站数据爬取', 'ARWU2024.json')
-output_file = os.path.join(project_root, '数据处理', 'ARWU2024_processed.json')
+input_file = os.path.join(project_root, 'DataOriginal\Data', 'ARWU2024.json')
+output_file = os.path.join(project_root, 'DataProcessed', 'ARWU2024_processed.json')
 
 # 大学名称中英文映射表
 university_map = {
@@ -960,26 +960,26 @@ if __name__ == "__main__":
     processed_data = process_data()
     print("基础数据处理完成!")
     
-    # 尝试调用Milvus向量库功能（可选）
-    try:
-        print("正在尝试连接Milvus向量数据库...")
-        collections = milvus_pipeline()
-        if collections:
-            print("Milvus向量数据库功能已成功设置!")
-            print("集合信息:")
-            if "score" in collections:
-                print(f"- 评分向量集合 (7维): {collections['score'].name}")
-            if "enhanced" in collections:
-                print(f"- 增强特征向量集合 (10维): {collections['enhanced'].name}")
-            if "text" in collections:
-                print(f"- 文本嵌入向量集合 (768维): {collections['text'].name}")
-            
-            print("\n您现在可以使用以下功能:")
-            print("1. 搜索评分相似大学: search_similar_by_scores(collections, '哈佛大学')")
-            print("2. 文本描述搜索: search_by_description(collections, '亚洲顶尖研究型大学')")
-            print("3. 混合搜索: hybrid_search(collections, region='Asia')")
-        else:
-            print("Milvus向量数据库功能不可用，仅完成了基础数据处理")
-    except Exception as e:
-        print(f"Milvus向量数据库功能出错: {str(e)}")
-        print("已完成基础数据处理，向量数据库功能不可用")
+    # # 尝试调用Milvus向量库功能（可选）
+    # try:
+    #     print("正在尝试连接Milvus向量数据库...")
+    #     collections = milvus_pipeline()
+    #     if collections:
+    #         print("Milvus向量数据库功能已成功设置!")
+    #         print("集合信息:")
+    #         if "score" in collections:
+    #             print(f"- 评分向量集合 (7维): {collections['score'].name}")
+    #         if "enhanced" in collections:
+    #             print(f"- 增强特征向量集合 (10维): {collections['enhanced'].name}")
+    #         if "text" in collections:
+    #             print(f"- 文本嵌入向量集合 (768维): {collections['text'].name}")
+    #
+    #         print("\n您现在可以使用以下功能:")
+    #         print("1. 搜索评分相似大学: search_similar_by_scores(collections, '哈佛大学')")
+    #         print("2. 文本描述搜索: search_by_description(collections, '亚洲顶尖研究型大学')")
+    #         print("3. 混合搜索: hybrid_search(collections, region='Asia')")
+    #     else:
+    #         print("Milvus向量数据库功能不可用，仅完成了基础数据处理")
+    # except Exception as e:
+    #     print(f"Milvus向量数据库功能出错: {str(e)}")
+    #     print("已完成基础数据处理，向量数据库功能不可用")

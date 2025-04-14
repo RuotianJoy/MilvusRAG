@@ -1,11 +1,33 @@
 from pymilvus import connections, Collection
 import numpy as np
 import argparse
+import os
+import configparser
+
+# 获取项目根目录
+project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+# 配置文件路径
+config_file = os.path.join(project_root, "Config", "Milvus.ini")
+
+# 读取配置文件
+def load_config():
+    """读取配置文件"""
+    config = configparser.ConfigParser()
+    config.read(config_file, encoding='utf-8')
+    return {
+        'host': config.get('connection', 'host', fallback='localhost'),
+        'port': config.get('connection', 'port', fallback='19530')
+    }
 
 def test_query(collection_name="us_colleges"):
+    # 加载配置
+    milvus_config = load_config()
+    host = milvus_config['host']
+    port = milvus_config['port']
+    
     # 连接到Milvus
-    print("连接到Milvus...")
-    connections.connect(host="localhost", port="19530")
+    print(f"连接到Milvus ({host}:{port})...")
+    connections.connect(host=host, port=port)
     
     # 获取集合
     print(f"加载集合 {collection_name}...")
