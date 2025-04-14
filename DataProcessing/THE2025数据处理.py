@@ -10,8 +10,8 @@ from pymilvus import FieldSchema, CollectionSchema, DataType, Collection, connec
 # 使用更可靠的路径构建方式
 current_dir = os.path.dirname(os.path.abspath(__file__))
 project_root = os.path.dirname(current_dir)
-input_file = os.path.join(project_root, '第三方排名网站数据爬取', 'THE2025.json')
-output_file = os.path.join(project_root, '数据处理', 'THE2025_processed.json')
+input_file = os.path.join(project_root, 'DataOriginal\Data', 'THE2025.json')
+output_file = os.path.join(project_root, 'DataProcessed', 'THE2025_processed.json')
 
 # 使用BERT模型进行文本嵌入
 def create_text_embedding(text, model_name="bert-base-multilingual-cased"):
