@@ -43,7 +43,7 @@ def test_meta_collection():
     
     # 连接到Milvus
     print("连接到Milvus...")
-    connections.connect(host="localhost", port="19530")
+    connections.connect(host=host, port=port)
     
     # 检查集合是否存在
     if not utility.has_collection(META_COLLECTION):
