@@ -3,9 +3,30 @@
 
 from pymilvus import connections, Collection
 from sentence_transformers import SentenceTransformer
+import configparser
+
+# 获取项目根目录
+project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+# 配置文件路径
+config_file = os.path.join(project_root, "Config", "Milvus.ini")
+
+# 读取配置文件
+def load_config():
+    """读取配置文件"""
+    config = configparser.ConfigParser()
+    config.read(config_file, encoding='utf-8')
+    return {
+        'host': config.get('connection', 'host', fallback='localhost'),
+        'port': config.get('connection', 'port', fallback='19530')
+    }
 
 def search_universities(query_text, limit=5):
     """使用向量搜索查询大学"""
+    # 加载配置
+    milvus_config = load_config()
+    host = milvus_config['host']
+    port = milvus_config['port']
+    
     try:
         # 连接到Milvus服务器
         connections.connect("default", host="localhost", port="19530")
