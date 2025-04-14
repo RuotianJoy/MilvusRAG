@@ -429,13 +429,9 @@ def process_data(input_file, output_file):
         raise
 
 if __name__ == "__main__":
-    # 获取当前脚本所在的目录
     current_dir = os.path.dirname(os.path.abspath(__file__))
-    # 获取项目根目录
-    root_dir = os.path.dirname(current_dir)
-    
-    # 输入和输出文件路径
-    input_file = os.path.join(root_dir, "大学官方数据爬取", "US高校维基百科爬虫数据.json")
-    output_file = os.path.join(current_dir, "US高校维基百科数据_processed.json")
+    project_root = os.path.dirname(current_dir)
+    input_file = os.path.join(project_root, 'DataOriginal\Data', 'US高校维基百科爬虫数据.json')
+    output_file = os.path.join(project_root, 'DataProcessed', 'US高校维基百科数据_processed.json')
     
     process_data(input_file, output_file) 
