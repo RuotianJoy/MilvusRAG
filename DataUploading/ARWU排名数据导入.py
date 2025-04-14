@@ -24,7 +24,7 @@ project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.append(project_root)
 
 # 输入输出文件路径
-processed_file = os.path.join(project_root, "数据处理", "ARWU2024_processed.json")
+processed_file = os.path.join(project_root, "DataProcessed", "ARWU2024_processed.json")
 
 # 连接参数
 _HOST = 'localhost'
