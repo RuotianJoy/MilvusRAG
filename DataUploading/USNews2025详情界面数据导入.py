@@ -49,7 +49,7 @@ class MilvusImporter:
         
         try:
             connections.connect("default", host=host, port=port)
-            print(f"已成功连接到Milvus服务器: {self.host}:{self.port}")
+            print(f"已成功连接到Milvus服务器: {host}:{port}")
         except Exception as e:
             print(f"连接Milvus服务器失败: {str(e)}")
             raise
