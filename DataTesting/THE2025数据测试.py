@@ -17,8 +17,28 @@ SUBJECTS_COLLECTION = "the2025_subjects"
 METRICS_COLLECTION = "the2025_metrics"
 META_COLLECTION = "the2025_meta"
 
+# 获取项目根目录
+project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+# 配置文件路径
+config_file = os.path.join(project_root, "Config", "Milvus.ini")
+
+# 读取配置文件
+def load_config():
+    """读取配置文件"""
+    config = configparser.ConfigParser()
+    config.read(config_file, encoding='utf-8')
+    return {
+        'host': config.get('connection', 'host', fallback='localhost'),
+        'port': config.get('connection', 'port', fallback='19530')
+    }
+
 def test_meta_collection():
     """测试元数据集合的基本查询功能"""
+    # 加载配置
+    milvus_config = load_config()
+    host = milvus_config['host']
+    port = milvus_config['port']
+    
     # 连接到Milvus
     print("连接到Milvus...")
     connections.connect(host="localhost", port="19530")
