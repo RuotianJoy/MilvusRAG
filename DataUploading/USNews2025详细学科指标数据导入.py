@@ -7,6 +7,7 @@ import uuid
 import numpy as np
 from pymilvus import connections, Collection, FieldSchema, CollectionSchema, DataType, utility
 from sentence_transformers import SentenceTransformer
+import configparser
 
 class USNews2025SubjectDataImporter:
     def __init__(self, processed_data_path=None):
@@ -57,8 +58,8 @@ class USNews2025SubjectDataImporter:
         port = milvus_config['port']
     
         try:
-            connections.connect("default", host=self.host, port=self.port)
-            print(f"已成功连接到Milvus服务器: {self.host}:{self.port}")
+            connections.connect("default", host=host, port=port)
+            print(f"已成功连接到Milvus服务器: {host}:{port}")
         except Exception as e:
             print(f"连接Milvus服务器失败: {str(e)}")
             raise
