@@ -23,22 +23,30 @@ from pymilvus import (
     DataType
 )
 
-# 工作目录设置
-current_dir = os.path.dirname(os.path.abspath(__file__))
-project_root = os.path.dirname(current_dir)
-sys.path.append(project_root)
+# 获取项目根目录
+project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+# 配置文件路径
+config_file = os.path.join(project_root, "Config", "Milvus.ini")
+# 默认数据文件路径
+default_data_file = os.path.join(project_root, "DataProcessed", "Wiki美国高校初步数据_processed.json")
 
-# 输入文件路径
-processed_file = os.path.join(project_root, 'DataProcessed', 'THE2025_processed.json')
-
-# Milvus连接参数
-_HOST = 'localhost'
-_PORT = '19530'
-_COLLECTION_PREFIX = 'the2025'
-_PARTITION_NAME = 'THE2025'
+# 读取配置文件
+def load_config():
+    """读取配置文件"""
+    config = configparser.ConfigParser()
+    config.read(config_file, encoding='utf-8')
+    return {
+        'host': config.get('connection', 'host', fallback='localhost'),
+        'port': config.get('connection', 'port', fallback='19530')
+    }
 
 def connect_milvus():
     """连接到Milvus服务器"""
+    # 加载配置
+    milvus_config = load_config()
+    host = milvus_config['host']
+    port = milvus_config['port']
+    
     print(f"连接到 Milvus 服务器 {_HOST}:{_PORT}")
     try:
         connections.connect(
@@ -624,8 +632,8 @@ def main():
     
     try:
         # 加载处理好的数据
-        print(f"加载处理后的数据: {processed_file}")
-        with open(processed_file, 'r', encoding='utf-8') as f:
+        print(f"加载处理后的数据: {default_data_file}")
+        with open(default_data_file, 'r', encoding='utf-8') as f:
             data = json.load(f)
         print(f"已加载数据，共 {len(data)} 条记录")
         
