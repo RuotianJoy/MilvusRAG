@@ -15,6 +15,7 @@ from pymilvus import (
     utility,
     Collection
 )
+import configparser
 
 # 获取项目根目录
 project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -42,8 +43,8 @@ def connect_milvus():
     try:
         connections.connect(
             alias="default",
-            host=_HOST,
-            port=_PORT
+            host=_host,
+            port=_port
         )
         print("连接成功")
         return True
