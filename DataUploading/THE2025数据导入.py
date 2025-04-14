@@ -29,7 +29,7 @@ project_root = os.path.dirname(current_dir)
 sys.path.append(project_root)
 
 # 输入文件路径
-processed_file = os.path.join(current_dir, 'THE2025_processed.json')
+processed_file = os.path.join(project_root, 'DataProcessed', 'THE2025_processed.json')
 
 # Milvus连接参数
 _HOST = 'localhost'
