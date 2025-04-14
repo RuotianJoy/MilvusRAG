@@ -9,13 +9,10 @@ from sentence_transformers import SentenceTransformer
 
 
 class MilvusImporter:
-    def __init__(self, host="localhost", port="19530", processed_data_path=None):
+    def __init__(self, processed_data_path=None):
         """
         初始化Milvus导入器
         """
-        self.host = host
-        self.port = port
-        
         # 连接Milvus服务
         self.connect_to_milvus()
         
@@ -28,11 +25,26 @@ class MilvusImporter:
         
         # 初始化嵌入模型
         self.init_embedding_model()
+
+    # 读取配置文件
+    def load_config():
+        """读取配置文件"""
+        config = configparser.ConfigParser()
+        config.read(config_file, encoding='utf-8')
+        return {
+            'host': config.get('connection', 'host', fallback='localhost'),
+            'port': config.get('connection', 'port', fallback='19530')
+        }
     
     def connect_to_milvus(self):
         """
         连接到Milvus服务
         """
+        # 加载配置
+        milvus_config = load_config()
+        host = milvus_config['host']
+        port = milvus_config['port']
+        
         try:
             connections.connect("default", host=self.host, port=self.port)
             print(f"已成功连接到Milvus服务器: {self.host}:{self.port}")
@@ -641,19 +653,16 @@ class MilvusImporter:
 
 
 if __name__ == "__main__":
-    # 获取当前脚本所在的目录
-    current_dir = os.path.dirname(os.path.abspath(__file__))
-    project_root = os.path.dirname(current_dir)
+    # 获取项目根目录
+    project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    # 配置文件路径
+    config_file = os.path.join(project_root, "Config", "Milvus.ini")
+    # 默认数据文件路径
+    default_data_file = os.path.join(project_root, "DataProcessed", "USNews2025详情界面数据_processed.json")
     
-    # 处理后的数据文件路径
-    processed_data_path = os.path.join(project_root, 'DataProcessed', "USNews2025详情界面数据_processed.json")
     
     # 创建导入器并导入数据
-    importer = MilvusImporter(
-        host="localhost",
-        port="19530",
-        processed_data_path=processed_data_path
-    )
+    importer = MilvusImporter(processed_data_path=default_data_file)
     
     # 执行导入
     importer.import_all_data()
