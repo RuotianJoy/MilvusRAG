@@ -54,7 +54,7 @@ class USNews2025SubjectDataTester:
         port = milvus_config['port']
         
         try:
-            connections.connect("default", host=self.host, port=self.port)
+            connections.connect("default", host=host, port=port)
             print(f"已成功连接到Milvus服务器: {self.host}:{self.port}")
         except Exception as e:
             print(f"连接Milvus服务器失败: {str(e)}")
