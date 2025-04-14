@@ -16,17 +16,28 @@ from pymilvus import (
     Collection
 )
 
-# 工作目录设置
+# 获取项目根目录
 project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-sys.path.append(project_root)
+# 配置文件路径
+config_file = os.path.join(project_root, "Config", "Milvus.ini")
 
-# 连接参数
-_HOST = 'localhost'
-_PORT = '19530'
-_PARTITION_NAME = "ARWU2024"
+# 读取配置文件
+def load_config():
+    """读取配置文件"""
+    config = configparser.ConfigParser()
+    config.read(config_file, encoding='utf-8')
+    return {
+        'host': config.get('connection', 'host', fallback='localhost'),
+        'port': config.get('connection', 'port', fallback='19530')
+    }
+
 
 def connect_milvus():
     """连接到Milvus服务器"""
+    # 加载配置
+    milvus_config = load_config()
+    host = milvus_config['host']
+    port = milvus_config['port']
     print(f"连接到 Milvus 服务器 {_HOST}:{_PORT}")
     try:
         connections.connect(
