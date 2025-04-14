@@ -66,7 +66,7 @@ def connect_to_milvus():
             host=host, 
             port=port
         )
-        logging.info(f"成功连接到Milvus服务器: {MILVUS_HOST}:{MILVUS_PORT}")
+        logging.info(f"成功连接到Milvus服务器: {host}:{port}")
         return True
     except Exception as e:
         logging.error(f"连接Milvus失败: {e}")
