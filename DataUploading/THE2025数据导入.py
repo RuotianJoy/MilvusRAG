@@ -31,6 +31,10 @@ config_file = os.path.join(project_root, "Config", "Milvus.ini")
 # 默认数据文件路径
 default_data_file = os.path.join(project_root, "DataProcessed", "THE2025_processed.json")
 
+# 定义全局变量
+_COLLECTION_PREFIX = "the2025"  # 集合名称前缀
+_PARTITION_NAME = "main"  # 分区名称
+
 # 读取配置文件
 def load_config():
     """读取配置文件"""

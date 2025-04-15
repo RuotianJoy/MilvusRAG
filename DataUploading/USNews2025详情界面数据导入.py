@@ -27,7 +27,7 @@ class MilvusImporter:
         self.init_embedding_model()
 
     # 读取配置文件
-    def load_config():
+    def load_config(self):
         """读取配置文件"""
         # 配置文件路径
         config_file = os.path.join(project_root, "Config", "Milvus.ini")
@@ -43,7 +43,7 @@ class MilvusImporter:
         连接到Milvus服务
         """
         # 加载配置
-        milvus_config = load_config()
+        milvus_config = self.load_config()
         host = milvus_config['host']
         port = milvus_config['port']
         

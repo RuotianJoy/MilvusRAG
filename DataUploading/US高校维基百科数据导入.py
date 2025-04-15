@@ -16,12 +16,16 @@ import configparser
 
 # 设置日志格式，只保留必要的信息
 logging.basicConfig(
-    level=logging.INFO,
+    level=logging.DEBUG,  # 更改为DEBUG级别以获取更多信息
     format='%(asctime)s - %(levelname)s - %(message)s'
 )
 
 # 加载环境变量
 load_dotenv()
+
+# 定义常量
+COLLECTION_NAME = "us_colleges"
+VECTOR_DIM = 768  # 初始设置，将根据实际数据调整
 
 class MilvusImporter:
     def __init__(self, input_file_path):
@@ -37,6 +41,15 @@ class MilvusImporter:
             # 步骤1: 加载JSON数据
             if not self._load_data():
                 return False
+            
+            # 步骤1.5: 检测向量维度
+            global VECTOR_DIM
+            detected_dim = self._detect_vector_dimension()
+            if detected_dim:
+                VECTOR_DIM = detected_dim
+                logging.info(f"已检测到向量维度: {VECTOR_DIM}")
+            else:
+                logging.warning("无法检测到向量维度，使用默认值")
                 
             # 步骤2: 连接Milvus
             if not self._connect_to_milvus():
@@ -58,6 +71,47 @@ class MilvusImporter:
             logging.error(f"导入过程中发生错误: {e}")
             return False
     
+    def _detect_vector_dimension(self):
+        """从数据中检测向量维度"""
+        if not self.data or not isinstance(self.data, list) or len(self.data) == 0:
+            return None
+            
+        # 尝试找到第一个有效的向量
+        for college in self.data:
+            if "vectors" not in college:
+                continue
+                
+            vectors = college.get("vectors", {})
+            if not isinstance(vectors, dict):
+                continue
+                
+            # 记录所有可能的向量字段
+            all_vector_fields = []
+            
+            # 检查所有可能的向量类型
+            for vector_type in ["basic", "detail", "feature"]:
+                # 尝试不同的字段名格式
+                field_names = [
+                    f"{vector_type}_vector",
+                    vector_type,
+                    f"{vector_type}_embedding"
+                ]
+                
+                for field in field_names:
+                    if field in vectors and isinstance(vectors[field], list) and len(vectors[field]) > 0:
+                        all_vector_fields.append((field, len(vectors[field])))
+            
+            # 输出所有找到的向量字段
+            if all_vector_fields:
+                for field, dim in all_vector_fields:
+                    logging.info(f"找到向量字段: {field}, 维度: {dim}")
+                # 返回第一个找到的向量维度
+                return all_vector_fields[0][1]
+                
+        # 遍历所有记录后仍未找到向量
+        logging.warning("在数据中未找到任何向量字段")
+        return None
+    
     def _load_data(self):
         """加载JSON数据"""
         logging.info(f"正在加载数据文件: {self.input_file_path}")
@@ -75,12 +129,21 @@ class MilvusImporter:
                 return False
                 
             logging.info(f"成功加载 {len(self.data)} 条数据")
+            
+            # 检查第一条数据结构
+            if len(self.data) > 0:
+                first_record = self.data[0]
+                logging.debug(f"第一条记录结构: {list(first_record.keys())}")
+                if "vectors" in first_record:
+                    logging.debug(f"向量结构: {list(first_record['vectors'].keys()) if isinstance(first_record['vectors'], dict) else '非字典类型'}")
+            
             return True
         except Exception as e:
             logging.error(f"加载数据失败: {e}")
             return False
 
-    def load_config():
+    @staticmethod
+    def load_config(project_root):
         """读取配置文件"""
         # 配置文件路径
         config_file = os.path.join(project_root, "Config", "Milvus.ini")
@@ -93,8 +156,10 @@ class MilvusImporter:
     
     def _connect_to_milvus(self):
         """连接到Milvus服务器"""
+        # 获取项目根目录
+        project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         # 加载配置
-        milvus_config = load_config()
+        milvus_config = self.load_config(project_root)
         host = milvus_config['host']
         port = milvus_config['port']
         
@@ -120,15 +185,15 @@ class MilvusImporter:
             
             # 创建集合字段
             fields = [
-                FieldSchema(name="id", dtype=DataType.VARCHAR, description="学校ID", is_primary=True, max_length=100),
+                FieldSchema(name="id", dtype=DataType.VARCHAR, description="学校ID", is_primary=True, max_length=500),
                 FieldSchema(name="name", dtype=DataType.VARCHAR, description="学校名称", max_length=500),
-                FieldSchema(name="state", dtype=DataType.VARCHAR, description="州", max_length=100),
-                FieldSchema(name="control", dtype=DataType.VARCHAR, description="公立/私立", max_length=50),
-                FieldSchema(name="type", dtype=DataType.VARCHAR, description="学校类型", max_length=100),
+                FieldSchema(name="state", dtype=DataType.VARCHAR, description="州", max_length=200),
+                FieldSchema(name="control", dtype=DataType.VARCHAR, description="公立/私立", max_length=200),
+                FieldSchema(name="type", dtype=DataType.VARCHAR, description="学校类型", max_length=200),
                 FieldSchema(name="enrollment", dtype=DataType.INT64, description="入学人数"),
                 FieldSchema(name="founded", dtype=DataType.INT64, description="成立年份"),
                 FieldSchema(name="vector", dtype=DataType.FLOAT_VECTOR, description="向量", dim=VECTOR_DIM),
-                FieldSchema(name="vector_type", dtype=DataType.VARCHAR, description="向量类型", max_length=20),
+                FieldSchema(name="vector_type", dtype=DataType.VARCHAR, description="向量类型", max_length=200),
                 FieldSchema(name="json_data", dtype=DataType.VARCHAR, description="完整JSON数据", max_length=65535)
             ]
             
@@ -299,24 +364,69 @@ class MilvusImporter:
     
     def _get_vector(self, college, vector_type):
         """从学校数据中获取特定类型的向量"""
+        # 检查是否有向量字段
         if "vectors" not in college:
             return None
             
         vectors = college["vectors"]
         
+        # 如果vectors不是字典类型，尝试直接作为向量使用
+        if not isinstance(vectors, dict):
+            if isinstance(vectors, list) and len(vectors) == VECTOR_DIM:
+                logging.debug(f"使用整个vectors字段作为向量, ID: {college.get('id', 'unknown')}")
+                return vectors
+            else:
+                logging.debug(f"ID: {college.get('id', 'unknown')} - vectors不是字典类型: {type(vectors)}")
+                return None
+        
         # 尝试可能的字段名
         field_names = [
             f"{vector_type}_vector",  # basic_vector
             vector_type,              # basic
-            f"{vector_type}_embedding" # basic_embedding
+            f"{vector_type}_embedding", # basic_embedding
+            "vector",                 # 通用向量字段
+            "embedding"               # 通用嵌入字段
         ]
         
+        # 查找指定向量类型
         for field in field_names:
-            if field in vectors and isinstance(vectors[field], list):
-                vector = vectors[field]
-                # 检查向量维度
-                if len(vector) == VECTOR_DIM:
-                    return vector
+            if field in vectors:
+                value = vectors[field]
+                # 检查是否为列表且维度匹配
+                if isinstance(value, list) and len(value) == VECTOR_DIM:
+                    return value
+                # 检查是否为嵌套结构
+                elif isinstance(value, dict) and "vector" in value and isinstance(value["vector"], list):
+                    if len(value["vector"]) == VECTOR_DIM:
+                        return value["vector"]
+        
+        # 如果只找到一个向量字段，无论类型，都尝试使用它
+        if len(vectors) == 1:
+            only_vector = list(vectors.values())[0]
+            if isinstance(only_vector, list) and len(only_vector) == VECTOR_DIM:
+                logging.debug(f"使用唯一向量字段: {list(vectors.keys())[0]}, ID: {college.get('id', 'unknown')}")
+                return only_vector
+        
+        # 查找任何维度匹配的向量
+        for key, value in vectors.items():
+            if isinstance(value, list) and len(value) == VECTOR_DIM:
+                logging.debug(f"使用找到的匹配维度向量: {key}, ID: {college.get('id', 'unknown')}")
+                return value
+        
+        # 调试日志
+        if college.get('id') == "1" or (isinstance(college.get('id'), int) and college.get('id') == 1):
+            vector_info = []
+            for key, value in vectors.items():
+                if isinstance(value, list):
+                    vector_info.append(f"{key}: {len(value)}维")
+                elif isinstance(value, dict) and any(isinstance(v, list) for v in value.values()):
+                    nested_info = [f"{k}: {len(v)}维" for k, v in value.items() if isinstance(v, list)]
+                    vector_info.append(f"{key}: {{{', '.join(nested_info)}}}")
+            
+            if vector_info:
+                logging.info(f"找到向量但维度不匹配: {', '.join(vector_info)}")
+            else:
+                logging.info("未找到任何可用向量")
         
         return None
 
@@ -325,6 +435,8 @@ def main():
     """主函数"""
     # 获取项目根目录
     project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    # 获取脚本目录
+    script_dir = os.path.dirname(os.path.abspath(__file__))
 
     # 默认数据文件路径
     default_data_file = os.path.join(project_root, "DataProcessed", "US高校维基百科数据_processed.json")

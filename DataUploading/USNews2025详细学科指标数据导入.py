@@ -19,8 +19,13 @@ class USNews2025SubjectDataImporter:
             port: Milvus服务器端口
             processed_data_path: 处理后的数据文件路径
         """
-        self.host = host
-        self.port = port
+        # 获取项目根目录
+        self.project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        
+        # 加载配置
+        config = self.load_config()
+        self.host = config['host']
+        self.port = config['port']
         
         # 连接Milvus服务
         self.connect_to_milvus()
@@ -37,10 +42,10 @@ class USNews2025SubjectDataImporter:
         self.processed_data = self.load_processed_data()
 
     # 读取配置文件
-    def load_config():
+    def load_config(self):
         """读取配置文件"""
         # 配置文件路径
-        config_file = os.path.join(project_root, "Config", "Milvus.ini")
+        config_file = os.path.join(self.project_root, "Config", "Milvus.ini")
         config = configparser.ConfigParser()
         config.read(config_file, encoding='utf-8')
         return {
@@ -52,14 +57,9 @@ class USNews2025SubjectDataImporter:
         """
         连接到Milvus服务
         """
-        # 加载配置
-        milvus_config = load_config()
-        host = milvus_config['host']
-        port = milvus_config['port']
-    
         try:
-            connections.connect("default", host=host, port=port)
-            print(f"已成功连接到Milvus服务器: {host}:{port}")
+            connections.connect("default", host=self.host, port=self.port)
+            print(f"已成功连接到Milvus服务器: {self.host}:{self.port}")
         except Exception as e:
             print(f"连接Milvus服务器失败: {str(e)}")
             raise
@@ -557,7 +557,7 @@ if __name__ == "__main__":
     default_data_file = os.path.join(project_root, "DataProcessed", "USNews2025详细学科指标数据_processed.json")
     
     # 检查处理后的数据文件是否存在
-    if not os.path.exists(processed_data_path):
+    if not os.path.exists(default_data_file):
         print(f"处理后的数据文件不存在: {default_data_file}")
     else:
         importer = USNews2025SubjectDataImporter(processed_data_path=default_data_file)
