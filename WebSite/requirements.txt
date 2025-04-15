@@ -1,9 +1,0 @@
-flask
-werkzeug
-pandas
-openpyxl
-pymilvus
-python-dotenv
-sentence-transformers
-openai
-rouge
