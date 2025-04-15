@@ -1,21 +1,3 @@
-[
-  {
-    "id": "b436180b-721e-4264-aec3-09b78e7970ed",
-    "timestamp": "2025-04-15 00:02:49",
-    "filename": "RAG1744646518.xlsx",
-    "question_count": 5,
-    "result_file": "test_results_b436180b-721e-4264-aec3-09b78e7970ed_20250415_000249.csv",
-    "avg_scores": {
-      "avg_rouge_1": 0.5861805781130792,
-      "avg_rouge_2": 0.08999999900250001,
-      "avg_rouge_l": 0.4734197333262572,
-      "avg_precision_1": 0.47855264232622724,
-      "avg_recall_1": 0.8056086956521739,
-      "avg_precision_l": 0.3903279296128822,
-      "avg_recall_l": 0.6726364879990051,
-      "avg_keyword_match": 0.5658142787445113,
-      "avg_keyword_precision": 0.4517849655585504,
-      "avg_keyword_recall": 0.7942293853073463
-    }
-  }
-]
+version https://git-lfs.github.com/spec/v1
+oid sha256:e58469aec0ae8b09d680837573ee1b19069432352ce5d68548c516a69f137458
+size 4085

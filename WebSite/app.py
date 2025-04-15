@@ -18,6 +18,17 @@ import sys
 import uuid
 from datetime import datetime
 
+# 禁用PyTorch MPS加速，避免Apple Silicon上的图形处理器错误
+os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1" 
+os.environ["PYTORCH_MPS_HIGH_WATERMARK_RATIO"] = "0.0"
+
+# 添加API密钥环境变量检查
+# 这里您需要替换为自己的API密钥
+DEFAULT_API_KEY = "sk-qvJtRhsJdn97oivEXcM3pxG1FClBwvXPCxfenxOfIc11Xeyy"  # 在这里填入您的OpenAI API密钥
+if "OPENAI_API_KEY_GPT" not in os.environ and DEFAULT_API_KEY:
+    print("设置默认OpenAI API密钥环境变量")
+    os.environ["OPENAI_API_KEY_GPT"] = DEFAULT_API_KEY
+
 # 添加项目根目录到路径
 project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.append(project_root)
@@ -35,7 +46,7 @@ app.config['ALLOWED_EXTENSIONS'] = {'csv', 'xlsx'}
 app.config['SESSION_TYPE'] = 'filesystem'  # 使用文件系统存储会话数据
 
 # Milvus连接配置
-MILVUS_HOST = '47.115.47.33'  # 默认本地主机
+MILVUS_HOST = '127.0.0.1'  # 默认本地主机
 MILVUS_PORT = '19530'  # 默认端口
 
 # 结果历史记录文件
@@ -264,29 +275,96 @@ def test_result(test_id):
         result_path = os.path.join(app.config['UPLOAD_FOLDER'], result['result_file'])
         if os.path.exists(result_path):
             df = pd.read_csv(result_path)
+            
+            # 检查是否是多模型测试（通过检查avg_scores结构或CSV中的Model列）
+            is_multi_model = False
+            if 'Model' in df.columns and len(df['Model'].unique()) > 1:
+                is_multi_model = True
+            elif isinstance(result['avg_scores'], dict):
+                # 现在avg_scores总是一个字典，它的第一层键是模型名称
+                # 如果有多个模型，那就是多模型测试
+                if len(result['avg_scores']) > 1:
+                    is_multi_model = True
+                # 单模型情况下也是以模型名称为键的字典
+                else:
+                    is_multi_model = False
+            
+            # 根据是否多模型测试处理数据
             results_data = []
-            for _, row in df.iterrows():
-                item = {
-                    'question': row['Question'],
-                    'reference': row['Reference'],
-                    'generated': row['Generated'],
-                    'retrieval_time': row['Retrieval_Time'],
-                    'metrics': {}
-                }
-                # 添加指标
-                for col in df.columns:
-                    if col not in ['Question', 'Reference', 'Generated', 'Retrieval_Time']:
-                        item['metrics'][col] = row[col]
-                results_data.append(item)
+            
+            if is_multi_model:
+                # 多模型测试情况 - 按问题分组
+                questions = df['Question'].unique()
+                
+                for question in questions:
+                    question_df = df[df['Question'] == question].reset_index(drop=True)
+                    
+                    if len(question_df) == 0:
+                        continue
+                        
+                    # 基本信息
+                    item = {
+                        'question': question,
+                        'reference': question_df.iloc[0]['Reference'],
+                        'retrieval_time': float(question_df.iloc[0]['Retrieval_Time']),
+                        'is_multi_model': True,
+                        'model_answers': {},
+                        'model_metrics': {}
+                    }
+                    
+                    # 填充各模型的数据
+                    for _, row in question_df.iterrows():
+                        model_name = row['Model']
+                        item['model_answers'][model_name] = row['Generated']
+                        
+                        # 添加该模型的指标
+                        metrics = {}
+                        for col in row.index:
+                            if col not in ['Question', 'Reference', 'Generated', 'Retrieval_Time', 'Model']:
+                                try:
+                                    # 确保值是浮点数
+                                    metrics[col] = float(row[col])
+                                except (TypeError, ValueError):
+                                    # 如果无法转换为浮点数，则跳过
+                                    app.logger.warning(f"无法将指标 {col} 的值 {row[col]} 转换为浮点数")
+                                    
+                        item['model_metrics'][model_name] = metrics
+                        
+                    results_data.append(item)
+            else:
+                # 单模型测试情况
+                for _, row in df.iterrows():
+                    item = {
+                        'question': row['Question'],
+                        'reference': row['Reference'],
+                        'generated': row['Generated'],
+                        'retrieval_time': float(row['Retrieval_Time']),
+                        'is_multi_model': False,
+                        'metrics': {}
+                    }
+                    # 添加指标
+                    for col in df.columns:
+                        if col not in ['Question', 'Reference', 'Generated', 'Retrieval_Time', 'Model']:
+                            try:
+                                # 确保值是浮点数
+                                item['metrics'][col] = float(row[col])
+                            except (TypeError, ValueError):
+                                # 如果无法转换为浮点数，则跳过
+                                app.logger.warning(f"无法将指标 {col} 的值 {row[col]} 转换为浮点数")
+                                
+                    results_data.append(item)
                 
             return render_template('result.html', 
                                 result=result, 
-                                results_data=results_data)
+                                results_data=results_data,
+                                is_multi_model=is_multi_model)
         else:
             flash('结果文件不存在', 'warning')
             return redirect(url_for('test_history'))
     except Exception as e:
         app.logger.error(f"读取结果文件失败: {str(e)}")
+        import traceback
+        app.logger.error(traceback.format_exc())
         flash(f'读取结果文件失败: {str(e)}', 'danger')
         return redirect(url_for('test_history'))
 
@@ -308,8 +386,15 @@ def run_test():
         filepath = data.get('filepath')
         session_id = data.get('session_id')
         filename = os.path.basename(filepath) if filepath else "未知文件"
+        # 获取要使用的模型列表
+        models = data.get('models', ["deepseek-chat"])
+        if isinstance(models, str):
+            models = [models]  # 确保是列表
+        
+        use_multi_model = len(models) > 1  # 是否使用多模型对比
         
         app.logger.info(f"测试文件路径: {filepath}, 会话ID: {session_id}, 文件名: {filename}")
+        app.logger.info(f"使用的模型: {models}, 多模型模式: {use_multi_model}")
         
         # 检查filepath是否为完整路径还是仅为文件名
         if filepath and not os.path.isabs(filepath) and not os.path.exists(filepath):
@@ -386,7 +471,7 @@ def run_test():
             }), 500
         
         # 对每个问题执行测试
-        max_questions = min(len(df), 10)  # 限制处理数量，避免过长时间
+        max_questions = min(len(df), 50)  # 限制处理数量，避免过长时间
         app.logger.info(f"将处理前{max_questions}个问题")
         
         for idx, row in df.iterrows():
@@ -406,29 +491,58 @@ def run_test():
                 app.logger.info("开始检索知识...")
                 context = RAG_TestingAndEvaluation.load_knowledge_variables(knowledge_collections, user_input, top_k=3)
                 
-                # 生成回答
-                app.logger.info("开始生成回答...")
-                generated_answer = RAG_TestingAndEvaluation.generate_answer(user_input, context)
+                # 根据设置决定是使用单一模型还是多模型对比
+                if use_multi_model:
+                    # 多模型生成答案并对比
+                    app.logger.info(f"开始使用多模型生成回答: {models}...")
+                    model_answers = RAG_TestingAndEvaluation.generate_answers_with_comparison(user_input, context, models)
+                    
+                    end_time = time.time()
+                    retrieval_time = end_time - start_time
+                    
+                    app.logger.info(f"多模型生成回答完成，耗时: {retrieval_time:.2f}秒")
+                    
+                    # 评估每个模型的结果
+                    app.logger.info("开始评估多模型结果...")
+                    model_metrics = RAG_TestingAndEvaluation.evaluate_multi_model_answers(model_answers, reference_answer)
+                    
+                    # 添加到结果列表
+                    result_item = {
+                        'question': user_input,
+                        'reference': reference_answer,
+                        'model_answers': model_answers,
+                        'model_metrics': model_metrics,
+                        'retrieval_time': retrieval_time,
+                        'multi_model': True
+                    }
+                else:
+                    # 单一模型生成
+                    model = models[0] if models else "deepseek-chat"
+                    app.logger.info(f"开始使用模型 {model} 生成回答...")
+                    generated_answer = RAG_TestingAndEvaluation.generate_answer(user_input, context, model_name=model)
+                    
+                    end_time = time.time()
+                    retrieval_time = end_time - start_time
+                    
+                    app.logger.info(f"生成回答完成，耗时: {retrieval_time:.2f}秒")
+                    
+                    # 评估结果
+                    app.logger.info("开始评估结果...")
+                    metrics = RAG_TestingAndEvaluation.evaluate_with_metrics(generated_answer, reference_answer)
+                    
+                    # 添加到结果列表
+                    result_item = {
+                        'question': user_input,
+                        'reference': reference_answer,
+                        'generated': generated_answer,
+                        'retrieval_time': retrieval_time,
+                        'metrics': metrics,
+                        'multi_model': False
+                    }
                 
-                end_time = time.time()
-                retrieval_time = end_time - start_time
-                
-                app.logger.info(f"生成回答完成，耗时: {retrieval_time:.2f}秒")
-                
-                # 评估结果
-                app.logger.info("开始评估结果...")
-                metrics = RAG_TestingAndEvaluation.evaluate_with_metrics(generated_answer, reference_answer)
-                
-                # 添加到结果列表
-                result_item = {
-                    'question': user_input,
-                    'reference': reference_answer,
-                    'generated': generated_answer,
-                    'retrieval_time': retrieval_time,
-                    'metrics': metrics
-                }
                 results_data.append(result_item)
                 app.logger.info(f"问题 {idx+1} 处理完成")
+                
             except Exception as question_error:
                 app.logger.error(f"处理问题 {idx+1} 时出错: {str(question_error)}")
                 import traceback
@@ -437,11 +551,34 @@ def run_test():
         # 计算平均分数
         avg_scores = {}
         if results_data:
-            for metric in results_data[0]['metrics']:
-                try:
-                    avg_scores[f'avg_{metric}'] = sum(item['metrics'].get(metric, 0) for item in results_data) / len(results_data)
-                except:
-                    avg_scores[f'avg_{metric}'] = 0
+            if use_multi_model:
+                # 如果使用多模型，为每个模型计算平均分
+                for model in models:
+                    model_avg = {}
+                    for metric in ['rouge_1', 'rouge_2', 'rouge_l', 'keyword_match',
+                                'precision_1', 'recall_1', 'precision_l', 'recall_l',
+                                'keyword_precision', 'keyword_recall']:
+                        try:
+                            model_avg[f'avg_{metric}'] = sum(item['model_metrics'][model].get(metric, 0) 
+                                                         for item in results_data 
+                                                         if model in item.get('model_metrics', {})) / len(results_data)
+                        except:
+                            model_avg[f'avg_{metric}'] = 0
+                    avg_scores[model] = model_avg
+            else:
+                # 单一模型的情况 - 使用模型名作为键创建嵌套字典结构
+                model_name = models[0] if models else "deepseek-chat"
+                model_avg = {}
+                
+                # 对每个指标计算平均值
+                for metric in results_data[0]['metrics']:
+                    try:
+                        model_avg[f'avg_{metric}'] = sum(item['metrics'].get(metric, 0) for item in results_data) / len(results_data)
+                    except:
+                        model_avg[f'avg_{metric}'] = 0
+                
+                # 将模型平均值放入带有模型名称的字典中
+                avg_scores[model_name] = model_avg
         
         app.logger.info(f"计算得到的平均分数: {avg_scores}")
         
@@ -456,17 +593,43 @@ def run_test():
         # 转换为DataFrame并保存
         try:
             result_rows = []
-            for item in results_data:
-                row = {
-                    'Question': item['question'],
-                    'Reference': item['reference'],
-                    'Generated': item['generated'],
-                    'Retrieval_Time': item['retrieval_time']
-                }
-                # 添加所有指标
-                for metric, value in item['metrics'].items():
-                    row[metric] = value
-                result_rows.append(row)
+            
+            if use_multi_model:
+                # 多模型结果保存
+                for item in results_data:
+                    base_row = {
+                        'Question': item['question'],
+                        'Reference': item['reference'],
+                        'Retrieval_Time': item['retrieval_time']
+                    }
+                    
+                    # 为每个模型创建一行
+                    for model in models:
+                        if model in item.get('model_answers', {}):
+                            row = base_row.copy()
+                            row['Model'] = model
+                            row['Generated'] = item['model_answers'].get(model, "")
+                            
+                            # 添加该模型的所有指标
+                            model_metrics = item.get('model_metrics', {}).get(model, {})
+                            for metric, value in model_metrics.items():
+                                row[metric] = value
+                                
+                            result_rows.append(row)
+            else:
+                # 单一模型结果保存
+                for item in results_data:
+                    row = {
+                        'Question': item['question'],
+                        'Reference': item['reference'],
+                        'Generated': item['generated'],
+                        'Retrieval_Time': item['retrieval_time'],
+                        'Model': models[0] if models else "deepseek-chat"
+                    }
+                    # 添加所有指标
+                    for metric, value in item['metrics'].items():
+                        row[metric] = value
+                    result_rows.append(row)
             
             result_df = pd.DataFrame(result_rows)
             result_df.to_csv(result_filepath, index=False, encoding='utf-8-sig')
@@ -482,7 +645,9 @@ def run_test():
             'results': results_data,
             'avg_scores': avg_scores,
             'result_file': result_filename,
-            'test_id': test_id
+            'test_id': test_id,
+            'models': models,
+            'multi_model': use_multi_model
         })
     
     except Exception as e:
@@ -491,7 +656,7 @@ def run_test():
         app.logger.error(traceback.format_exc())
         return jsonify({
             'status': 'error',
-            'message': str(e)
+            'message': f'执行测试失败: {str(e)}'
         }), 500
 
 @app.route('/milvus')
@@ -744,4 +909,4 @@ if __name__ == '__main__':
     app.config['PROPAGATE_EXCEPTIONS'] = True
     
     # 运行应用程序，启用调试模式
-    app.run(debug=True, host='0.0.0.0', port=5000) 
+    app.run(debug=True, host='0.0.0.0', port=5555)

@@ -12,7 +12,7 @@ from pymilvus import connections, utility
 import time
 
 # 连接参数
-HOST = '47.115.47.33'
+HOST = '127.0.0.1'
 PORT = '19530'
 
 

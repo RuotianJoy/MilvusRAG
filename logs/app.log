@@ -1,0 +1,13 @@
+设置默认OpenAI API密钥环境变量
+Rouge初始化成功
+API连接成功
+API连接成功
+测试开始: 连接到Milvus服务器 127.0.0.1:19530
+ * Serving Flask app 'WebSite.app'
+ * Debug mode: on
+WARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.
+ * Running on http://127.0.0.1:5656
+Press CTRL+C to quit
+ * Restarting with stat
+ * Debugger is active!
+ * Debugger PIN: 646-153-382

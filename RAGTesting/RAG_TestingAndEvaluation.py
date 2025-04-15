@@ -246,6 +246,14 @@ def get_embedding(text, collection_name=None, model="paraphrase-multilingual-Min
         try:
             # 尝试导入sentence-transformers库
             from sentence_transformers import SentenceTransformer
+            import torch
+            
+            # 强制使用CPU，避免在Apple Silicon上使用MPS
+            old_device = torch.device("cpu")
+            if hasattr(torch, "get_default_device"):
+                old_device = torch.get_default_device()
+                torch.set_default_device("cpu")
+            os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
             # 如果是评分向量或增强向量，使用随机向量
             if "score" in str(collection_name) or "enhanced" in str(collection_name):
@@ -265,13 +273,18 @@ def get_embedding(text, collection_name=None, model="paraphrase-multilingual-Min
             # 加载或获取缓存的模型
             if model not in get_embedding.model_cache:
                 print(f"首次加载本地模型: {model}")
-                get_embedding.model_cache[model] = SentenceTransformer(model)
+                get_embedding.model_cache[model] = SentenceTransformer(model, device="cpu")
 
             local_model = get_embedding.model_cache[model]
 
             # 获取嵌入
             print(f"使用本地模型生成嵌入向量: {model}")
             embedding = local_model.encode(text, convert_to_numpy=True)
+            
+            # 恢复原始设备设置
+            if hasattr(torch, "set_default_device") and hasattr(torch, "get_default_device"):
+                if torch.get_default_device() != old_device:
+                    torch.set_default_device(old_device)
 
             # 调整维度
             actual_dim = len(embedding)
@@ -1547,34 +1560,112 @@ def load_knowledge_variables(collections, query, top_k=5, use_keyword_search=Tru
         return "未找到相关信息 (发生错误)" + f"  错误详情: {str(e)}"
 
 # 使用DeepSeek生成回答
-def generate_answer(query, context):
-    """使用DeepSeek生成回答"""
+def generate_answer(query, context, model_name="deepseek-chat"):
+    """使用多种LLM模型生成回答
+    
+    Args:
+        query: 用户的问题
+        context: 检索到的上下文
+        model_name: 模型名称，支持"deepseek-chat"和"gpt-4o"等
+    
+    Returns:
+        生成的回答文本
+    """
     try:
         system_prompt = """
         你是一个专门回答大学相关问题的AI助手。你可以提供关于大学排名、学校情况、地理位置等信息。
         
-        请根据提供的相关知识背景严格使用简洁精炼的语言完整回答用户的问题。如果知识背景中没有相关信息，请基于你的常识进行回答。你的回答中不得带有“注”或者“需要注意”的部分的描述。，
+        请根据提供的相关知识背景严格使用简洁精炼的语言完整回答用户的问题。如果知识背景中没有相关信息，请基于你的常识进行回答。你的回答中不得带有"注"或者"需要注意"的部分的描述。，
         
-        如果是关于排名的问题，要提及具体的排名来源和排名年份。
+        如果是关于排名的问题，一定要提及具体的排名来源和排名年份。
         """
 
-        prompt_text = f"{system_prompt}\n\n相关知识背景：\n{context}\n\n用户的问题：{query}"
-
-        response = client.chat.completions.create(
-            model="deepseek-chat",  # 使用DeepSeek的聊天模型
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": f"相关知识背景：\n{context}\n\n用户的问题：{query}"}
-            ],
-            temperature=0.3,
-            max_tokens=800
-        )
-
-        return response.choices[0].message.content
+        # 默认使用DeepSeek API
+        if "deepseek" in model_name.lower():
+            # 使用DeepSeek API
+            print(f"使用DeepSeek模型 ({model_name}) 生成回答...")
+            response = client.chat.completions.create(
+                model=model_name,  # 使用DeepSeek的聊天模型
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": f"相关知识背景：\n{context}\n\n用户的问题：{query}"}
+                ],
+                temperature=0.3,
+                max_tokens=800
+            )
+            return response.choices[0].message.content
+        elif "gpt" in model_name.lower():
+            # 如果使用OpenAI GPT模型，需要切换到OpenAI API
+            print(f"使用OpenAI模型 ({model_name}) 生成回答...")
+            # 初始化OpenAI客户端(使用环境变量中的API密钥)
+                
+            openai_client = openai.OpenAI(
+                api_key="sk-qvJtRhsJdn97oivEXcM3pxG1FClBwvXPCxfenxOfIc11Xeyy",
+                # 这里没有指定base_url，将使用OpenAI默认的API端点
+                base_url="https://api.nuwaapi.com/v1"
+            )
+            
+            response = openai_client.chat.completions.create(
+                model=model_name,  # 例如gpt-4o
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": f"相关知识背景：\n{context}\n\n用户的问题：{query}"}
+                ],
+                temperature=0.3,
+                max_tokens=800
+            )
+            return response.choices[0].message.content
+        else:
+            raise ValueError(f"不支持的模型: {model_name}")
 
     except Exception as e:
         print(f"生成回答时出错: {e}")
         return f"生成回答时出错: {e}"
+
+# 使用多模型生成回答并比较
+def generate_answers_with_comparison(query, context, models=["deepseek-chat", "gpt-4o"]):
+    """使用多个模型生成回答并返回比较结果
+    
+    Args:
+        query: 用户的问题
+        context: 检索到的上下文
+        models: 要使用的模型列表
+        
+    Returns:
+        包含多个模型回答的字典
+    """
+    results = {}
+    
+    try:
+        for model in models:
+            print(f"使用模型 {model} 生成回答...")
+            answer = generate_answer(query, context, model_name=model)
+            results[model] = answer
+            
+        return results
+    except Exception as e:
+        print(f"多模型比较时出错: {e}")
+        return {"error": f"生成比较回答时出错: {e}"}
+
+# 修改评估函数，支持多模型的评估
+def evaluate_multi_model_answers(answers_dict, reference_answer):
+    """评估多个模型生成的回答
+    
+    Args:
+        answers_dict: 包含多个模型回答的字典 {model_name: answer}
+        reference_answer: 标准参考答案
+        
+    Returns:
+        每个模型的评估结果字典 {model_name: metrics}
+    """
+    results = {}
+    
+    for model_name, answer in answers_dict.items():
+        print(f"\n评估模型 {model_name} 的回答...")
+        metrics = evaluate_with_metrics(answer, reference_answer)
+        results[model_name] = metrics
+        
+    return results
 
 # 修改评估函数，增加调试信息和备用ROUGE计算
 def evaluate_with_metrics(generated_answer, reference_answer):

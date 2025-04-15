@@ -155,17 +155,42 @@
                         </div>
                         <div class="card-body">
                             {% if result.avg_scores %}
-                                {% for key, value in result.avg_scores.items() %}
-                                    <div class="metric-card">
-                                        <div class="d-flex justify-content-between">
-                                            <span>{{ key.replace('avg_', '').replace('_', '-').upper() }}:</span>
-                                            <span>{{ "%.4f"|format(value) }}</span>
+                                {% if is_multi_model %}
+                                    <!-- 多模型测试的情况 -->
+                                    {% for model_name, model_scores in result.avg_scores.items() %}
+                                        <h6 class="mt-2 mb-2">{{ model_name }}</h6>
+                                        {% for key, value in model_scores.items() %}
+                                            <div class="metric-card">
+                                                <div class="d-flex justify-content-between">
+                                                    <span>{{ key.replace('avg_', '').replace('_', '-').upper() }}:</span>
+                                                    <span>{{ "%.4f"|format(value) }}</span>
+                                                </div>
+                                                <div class="progress">
+                                                    <div class="progress-bar" role="progressbar" style="width: {{ value * 100 }}%"></div>
+                                                </div>
+                                            </div>
+                                        {% endfor %}
+                                        
+                                        {% if not loop.last %}
+                                            <hr class="my-3">
+                                        {% endif %}
+                                    {% endfor %}
+                                {% else %}
+                                    <!-- 单模型测试的情况 - 注意：现在avg_scores结构是以模型名为键的嵌套字典 -->
+                                    {% set model_name = result.avg_scores.keys()|list|first %}
+                                    <h6 class="mt-2 mb-2">{{ model_name }}</h6>
+                                    {% for key, value in result.avg_scores[model_name].items() %}
+                                        <div class="metric-card">
+                                            <div class="d-flex justify-content-between">
+                                                <span>{{ key.replace('avg_', '').replace('_', '-').upper() }}:</span>
+                                                <span>{{ "%.4f"|format(value) }}</span>
+                                            </div>
+                                            <div class="progress">
+                                                <div class="progress-bar" role="progressbar" style="width: {{ value * 100 }}%"></div>
+                                            </div>
                                         </div>
-                                        <div class="progress">
-                                            <div class="progress-bar" role="progressbar" style="width: {{ value * 100 }}%"></div>
-                                        </div>
-                                    </div>
-                                {% endfor %}
+                                    {% endfor %}
+                                {% endif %}
                             {% else %}
                                 <div class="text-center text-muted">
                                     <i>没有可用的得分数据</i>
@@ -197,50 +222,118 @@
                             {% for item in results_data %}
                                 <div class="test-item mb-4">
                                     <h5>{{ loop.index }}. {{ item.question }}</h5>
-                                    <div class="row mt-3">
-                                        <div class="col-md-6">
-                                            <div class="card h-100">
-                                                <div class="card-header bg-light text-dark py-2">
-                                                    <h6 class="mb-0">参考答案</h6>
-                                                </div>
-                                                <div class="card-body">
-                                                    <p>{{ item.reference }}</p>
-                                                </div>
-                                            </div>
+                                    
+                                    <!-- 参考答案始终显示 -->
+                                    <div class="card mb-3">
+                                        <div class="card-header bg-light text-dark py-2">
+                                            <h6 class="mb-0">参考答案</h6>
                                         </div>
-                                        <div class="col-md-6">
-                                            <div class="card h-100">
-                                                <div class="card-header bg-light text-dark py-2">
-                                                    <h6 class="mb-0">生成答案</h6>
-                                                </div>
-                                                <div class="card-body">
-                                                    <p>{{ item.generated }}</p>
-                                                    <div class="text-muted small mt-2">
-                                                        检索时间: {{ "%.2f"|format(item.retrieval_time) }}秒
-                                                    </div>
-                                                </div>
-                                            </div>
+                                        <div class="card-body">
+                                            <p>{{ item.reference }}</p>
                                         </div>
                                     </div>
                                     
-                                    <div class="metrics mt-3">
-                                        <h6>评估指标</h6>
-                                        <div class="row">
-                                            {% for metric, value in item.metrics.items() %}
-                                                <div class="col-md-3 col-sm-6 mb-2">
-                                                    <div class="metric-card">
-                                                        <div class="d-flex justify-content-between">
-                                                            <span title="{{ metric }}">{{ metric|upper }}</span>
-                                                            <span>{{ "%.4f"|format(value) }}</span>
+                                    <!-- 检查是否为多模型测试 -->
+                                    {% if item.is_multi_model %}
+                                        <!-- 多模型测试结果 -->
+                                        <div class="mb-3">
+                                            <h6>模型回答与评估</h6>
+                                            
+                                            <!-- 标签页导航 -->
+                                            <ul class="nav nav-tabs" id="modelTab-{{ loop.index }}" role="tablist">
+                                                {% set outer_loop_index = loop.index %}
+                                                {% for model_name in item.model_answers.keys() %}
+                                                    <li class="nav-item" role="presentation">
+                                                        <button class="nav-link {% if loop.first %}active{% endif %}" 
+                                                                id="model-{{ loop.index }}-tab-{{ outer_loop_index }}" 
+                                                                data-bs-toggle="tab" 
+                                                                data-bs-target="#model-{{ loop.index }}-content-{{ outer_loop_index }}" 
+                                                                type="button" 
+                                                                role="tab">
+                                                            {{ model_name }}
+                                                        </button>
+                                                    </li>
+                                                {% endfor %}
+                                            </ul>
+                                            
+                                            <!-- 标签页内容 -->
+                                            <div class="tab-content mt-3" id="modelTabContent-{{ loop.index }}">
+                                                {% set outer_loop_index = loop.index %}
+                                                {% for model_name, answer in item.model_answers.items() %}
+                                                    <div class="tab-pane fade {% if loop.first %}show active{% endif %}" 
+                                                         id="model-{{ loop.index }}-content-{{ outer_loop_index }}" 
+                                                         role="tabpanel">
+                                                        
+                                                        <!-- 模型回答 -->
+                                                        <div class="card mb-3">
+                                                            <div class="card-header bg-light text-dark py-2">
+                                                                <h6 class="mb-0">{{ model_name }} 回答</h6>
+                                                            </div>
+                                                            <div class="card-body">
+                                                                <p>{{ answer }}</p>
+                                                                <div class="text-muted small mt-2">
+                                                                    检索时间: {{ "%.2f"|format(item.retrieval_time) }}秒
+                                                                </div>
+                                                            </div>
                                                         </div>
-                                                        <div class="progress">
-                                                            <div class="progress-bar" role="progressbar" style="width: {{ value * 100 }}%"></div>
+                                                        
+                                                        <!-- 模型评估指标 -->
+                                                        <div class="metrics mt-3">
+                                                            <h6>{{ model_name }} 评估指标</h6>
+                                                            <div class="row">
+                                                                {% for metric, value in item.model_metrics[model_name].items() %}
+                                                                    <div class="col-md-3 col-sm-6 mb-2">
+                                                                        <div class="metric-card">
+                                                                            <div class="d-flex justify-content-between">
+                                                                                <span title="{{ metric }}">{{ metric|upper }}</span>
+                                                                                <span>{{ "%.4f"|format(value) }}</span>
+                                                                            </div>
+                                                                            <div class="progress">
+                                                                                <div class="progress-bar" role="progressbar" style="width: {{ value * 100 }}%"></div>
+                                                                            </div>
+                                                                        </div>
+                                                                    </div>
+                                                                {% endfor %}
+                                                            </div>
                                                         </div>
                                                     </div>
-                                                </div>
-                                            {% endfor %}
+                                                {% endfor %}
+                                            </div>
                                         </div>
-                                    </div>
+                                    {% else %}
+                                        <!-- 单模型测试结果 -->
+                                        <div class="card mb-3">
+                                            <div class="card-header bg-light text-dark py-2">
+                                                <h6 class="mb-0">生成答案</h6>
+                                            </div>
+                                            <div class="card-body">
+                                                <p>{{ item.generated }}</p>
+                                                <div class="text-muted small mt-2">
+                                                    检索时间: {{ "%.2f"|format(item.retrieval_time) }}秒
+                                                </div>
+                                            </div>
+                                        </div>
+                                        
+                                        <!-- 评估指标 -->
+                                        <div class="metrics mt-3">
+                                            <h6>评估指标</h6>
+                                            <div class="row">
+                                                {% for metric, value in item.metrics.items() %}
+                                                    <div class="col-md-3 col-sm-6 mb-2">
+                                                        <div class="metric-card">
+                                                            <div class="d-flex justify-content-between">
+                                                                <span title="{{ metric }}">{{ metric|upper }}</span>
+                                                                <span>{{ "%.4f"|format(value) }}</span>
+                                                            </div>
+                                                            <div class="progress">
+                                                                <div class="progress-bar" role="progressbar" style="width: {{ value * 100 }}%"></div>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                {% endfor %}
+                                            </div>
+                                        </div>
+                                    {% endif %}
                                 </div>
                                 {% if not loop.last %}
                                     <hr>

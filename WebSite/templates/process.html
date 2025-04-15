@@ -190,6 +190,30 @@
                                 <i class="bi bi-info-circle-fill"></i> 点击"开始测试"按钮开始处理文件中的所有问题。
                             </div>
                             
+                            <!-- 添加模型选择部分 -->
+                            <div class="card mb-3">
+                                <div class="card-header">
+                                    <h6 class="mb-0">选择测试模型</h6>
+                                </div>
+                                <div class="card-body">
+                                    <div class="form-check mb-2">
+                                        <input class="form-check-input" type="checkbox" id="modelDeepseek" value="deepseek-chat" checked>
+                                        <label class="form-check-label" for="modelDeepseek">
+                                            Deepseek Chat
+                                        </label>
+                                    </div>
+                                    <div class="form-check mb-2">
+                                        <input class="form-check-input" type="checkbox" id="modelGPT" value="gpt-4o">
+                                        <label class="form-check-label" for="modelGPT">
+                                            gpt-4o
+                                        </label>
+                                    </div>
+                                    <div class="alert alert-warning mt-2" id="modelAlert" style="display:none;">
+                                        <i class="bi bi-exclamation-triangle-fill"></i> 请至少选择一个模型
+                                    </div>
+                                </div>
+                            </div>
+                            
                             {% for question in questions %}
                                 <div class="test-item" id="question-{{ loop.index0 }}">
                                     <h5>{{ loop.index }}. {{ question }}</h5>
@@ -229,15 +253,29 @@
             const testListArea = document.getElementById('testListArea');
             const resultsArea = document.getElementById('resultsArea');
             
-            const totalQuestions = {{ questions|length }};
+            // 这里我们需要安全地获取问题总数，避免JavaScript语法错误
+            const totalQuestions = parseInt("{{ questions|length }}");
 
             const sessionId = "{{ session_id }}";
             
             startTestBtn.addEventListener('click', function() {
+                // 获取选择的模型
+                const selectedModels = [];
+                document.querySelectorAll('input[type="checkbox"]:checked').forEach(function(checkbox) {
+                    selectedModels.push(checkbox.value);
+                });
+                
+                // 检查是否至少选择了一个模型
+                if (selectedModels.length === 0) {
+                    document.getElementById('modelAlert').style.display = 'block';
+                    return;
+                } else {
+                    document.getElementById('modelAlert').style.display = 'none';
+                }
+                
                 // 禁用开始按钮
                 startTestBtn.disabled = true;
                 startTestBtn.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> 测试中...';
-
 
                 
                 fetch('/run_test', {
@@ -247,7 +285,8 @@
                     },
                     body: JSON.stringify({
                         filepath: "RAG"+sessionId+".xlsx",
-                        session_id: sessionId
+                        session_id: sessionId,
+                        models: selectedModels
                     })
                 })
                 .then(function(response) {
@@ -315,6 +354,9 @@
                     'keyword_recall': '关键词召回率'
                 };
 
+                // 检查是否为多模型模式 - 只在这里声明一次
+                const isMultiModel = results.length > 0 && results[0].hasOwnProperty('multi_model') && results[0].multi_model;
+
                 // 更新各问题的详细结果
                 results.forEach(function(result, index) {
                     const questionItem = document.getElementById(`question-${index}`);
@@ -331,86 +373,231 @@
                     statusElement.innerHTML = '<span class="badge bg-success">已完成</span>';
                     
                     // 安全处理可能导致Unicode转义问题的字符
-                    const safeGenerated = result.generated.replace(/[\u0000-\u0019]/g, '');
+                    let detailsHTML = '';
                     
-                    // 更新详细信息，避免不规范的转义序列
-                    detailsElement.style.display = 'block';
-                    detailsElement.innerHTML = `
-                        <div class="mb-2">
-                            <strong>生成答案:</strong>
-                            <p>${safeGenerated}</p>
-                        </div>
-                        <div class="mb-2">
-                            <strong>检索时间:</strong> ${result.retrieval_time.toFixed(2)}秒
-                        </div>
-                        <div>
-                            <strong>评估指标:</strong>
-                            <div class="row">
-                                <div class="col-md-6">
-                                    <div class="metric-card">
-                                        <div class="d-flex justify-content-between">
-                                            <span>${metricNameMap['rouge_1'] || 'ROUGE-1'}:</span>
-                                            <span>${result.metrics.rouge_1.toFixed(4)}</span>
-                                        </div>
-                                        <div class="progress">
-                                            <div class="progress-bar bg-info" role="progressbar" style="width: ${result.metrics.rouge_1 * 100}%"></div>
+                    if (isMultiModel) {
+                        // 多模型结果展示
+                        detailsHTML += `<div class="mb-3"><strong>参考答案:</strong><p>${result.reference}</p></div>`;
+                        
+                        // 为每个模型创建标签页
+                        detailsHTML += `
+                            <ul class="nav nav-tabs" id="modelTabs-${index}" role="tablist">
+                        `;
+                        
+                        // 创建标签页头部
+                        let firstTab = true;
+                        for (const [modelName, answer] of Object.entries(result.model_answers)) {
+                            const modelId = modelName.replace(/[^a-zA-Z0-9]/g, '');
+                            detailsHTML += `
+                                <li class="nav-item" role="presentation">
+                                    <button class="nav-link ${firstTab ? 'active' : ''}" 
+                                            id="${modelId}-tab-${index}" 
+                                            data-bs-toggle="tab" 
+                                            data-bs-target="#${modelId}-content-${index}" 
+                                            type="button" 
+                                            role="tab">${modelName}</button>
+                                </li>
+                            `;
+                            firstTab = false;
+                        }
+                        detailsHTML += `</ul>`;
+                        
+                        // 创建标签页内容
+                        detailsHTML += `<div class="tab-content mt-3" id="modelTabsContent-${index}">`;
+                        
+                        firstTab = true;
+                        for (const [modelName, answer] of Object.entries(result.model_answers)) {
+                            const modelId = modelName.replace(/[^a-zA-Z0-9]/g, '');
+                            const safeAnswer = answer.replace(/[\u0000-\u0019]/g, '');
+                            const metrics = result.model_metrics[modelName];
+                            
+                            detailsHTML += `
+                                <div class="tab-pane fade ${firstTab ? 'show active' : ''}" 
+                                     id="${modelId}-content-${index}" 
+                                     role="tabpanel">
+                                    
+                                    <div class="mb-2">
+                                        <strong>${modelName} 回答:</strong>
+                                        <p>${safeAnswer}</p>
+                                    </div>
+                                    
+                                    <div class="mb-2">
+                                        <strong>检索时间:</strong> ${result.retrieval_time.toFixed(2)}秒
+                                    </div>
+                                    
+                                    <div>
+                                        <strong>评估指标:</strong>
+                                        <div class="row">
+                                            <div class="col-md-6">
+                                                <div class="metric-card">
+                                                    <div class="d-flex justify-content-between">
+                                                        <span>${metricNameMap['rouge_1'] || 'ROUGE-1'}:</span>
+                                                        <span>${metrics.rouge_1.toFixed(4)}</span>
+                                                    </div>
+                                                    <div class="progress">
+                                                        <div class="progress-bar bg-info" role="progressbar" style="width: ${metrics.rouge_1 * 100}%"></div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            <div class="col-md-6">
+                                                <div class="metric-card">
+                                                    <div class="d-flex justify-content-between">
+                                                        <span>${metricNameMap['rouge_l'] || 'ROUGE-L'}:</span>
+                                                        <span>${metrics.rouge_l.toFixed(4)}</span>
+                                                    </div>
+                                                    <div class="progress">
+                                                        <div class="progress-bar bg-success" role="progressbar" style="width: ${metrics.rouge_l * 100}%"></div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            <div class="col-md-6">
+                                                <div class="metric-card">
+                                                    <div class="d-flex justify-content-between">
+                                                        <span>${metricNameMap['keyword_match'] || '关键词匹配'}:</span>
+                                                        <span>${metrics.keyword_match.toFixed(4)}</span>
+                                                    </div>
+                                                    <div class="progress">
+                                                        <div class="progress-bar bg-warning" role="progressbar" style="width: ${metrics.keyword_match * 100}%"></div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            <div class="col-md-6">
+                                                <div class="metric-card">
+                                                    <div class="d-flex justify-content-between">
+                                                        <span>${metricNameMap['precision_1'] || '精确率(P-1)'}:</span>
+                                                        <span>${metrics.precision_1.toFixed(4)}</span>
+                                                    </div>
+                                                    <div class="progress">
+                                                        <div class="progress-bar bg-danger" role="progressbar" style="width: ${metrics.precision_1 * 100}%"></div>
+                                                    </div>
+                                                </div>
+                                            </div>
                                         </div>
                                     </div>
                                 </div>
-                                <div class="col-md-6">
-                                    <div class="metric-card">
-                                        <div class="d-flex justify-content-between">
-                                            <span>${metricNameMap['rouge_l'] || 'ROUGE-L'}:</span>
-                                            <span>${result.metrics.rouge_l.toFixed(4)}</span>
-                                        </div>
-                                        <div class="progress">
-                                            <div class="progress-bar bg-success" role="progressbar" style="width: ${result.metrics.rouge_l * 100}%"></div>
+                            `;
+                            firstTab = false;
+                        }
+                        
+                        detailsHTML += `</div>`;
+                        
+                    } else {
+                        // 单一模型展示方式
+                        const safeGenerated = result.generated.replace(/[\u0000-\u0019]/g, '');
+                        
+                        detailsHTML = `
+                            <div class="mb-2">
+                                <strong>生成答案:</strong>
+                                <p>${safeGenerated}</p>
+                            </div>
+                            <div class="mb-2">
+                                <strong>检索时间:</strong> ${result.retrieval_time.toFixed(2)}秒
+                            </div>
+                            <div>
+                                <strong>评估指标:</strong>
+                                <div class="row">
+                                    <div class="col-md-6">
+                                        <div class="metric-card">
+                                            <div class="d-flex justify-content-between">
+                                                <span>${metricNameMap['rouge_1'] || 'ROUGE-1'}:</span>
+                                                <span>${result.metrics.rouge_1.toFixed(4)}</span>
+                                            </div>
+                                            <div class="progress">
+                                                <div class="progress-bar bg-info" role="progressbar" style="width: ${result.metrics.rouge_1 * 100}%"></div>
+                                            </div>
                                         </div>
                                     </div>
-                                </div>
-                                <div class="col-md-6">
-                                    <div class="metric-card">
-                                        <div class="d-flex justify-content-between">
-                                            <span>${metricNameMap['keyword_match'] || '关键词匹配'}:</span>
-                                            <span>${result.metrics.keyword_match.toFixed(4)}</span>
-                                        </div>
-                                        <div class="progress">
-                                            <div class="progress-bar bg-warning" role="progressbar" style="width: ${result.metrics.keyword_match * 100}%"></div>
+                                    <div class="col-md-6">
+                                        <div class="metric-card">
+                                            <div class="d-flex justify-content-between">
+                                                <span>${metricNameMap['rouge_l'] || 'ROUGE-L'}:</span>
+                                                <span>${result.metrics.rouge_l.toFixed(4)}</span>
+                                            </div>
+                                            <div class="progress">
+                                                <div class="progress-bar bg-success" role="progressbar" style="width: ${result.metrics.rouge_l * 100}%"></div>
+                                            </div>
                                         </div>
                                     </div>
-                                </div>
-                                <div class="col-md-6">
-                                    <div class="metric-card">
-                                        <div class="d-flex justify-content-between">
-                                            <span>${metricNameMap['precision_1'] || '精确率(P-1)'}:</span>
-                                            <span>${result.metrics.precision_1.toFixed(4)}</span>
+                                    <div class="col-md-6">
+                                        <div class="metric-card">
+                                            <div class="d-flex justify-content-between">
+                                                <span>${metricNameMap['keyword_match'] || '关键词匹配'}:</span>
+                                                <span>${result.metrics.keyword_match.toFixed(4)}</span>
+                                            </div>
+                                            <div class="progress">
+                                                <div class="progress-bar bg-warning" role="progressbar" style="width: ${result.metrics.keyword_match * 100}%"></div>
+                                            </div>
                                         </div>
-                                        <div class="progress">
-                                            <div class="progress-bar bg-danger" role="progressbar" style="width: ${result.metrics.precision_1 * 100}%"></div>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <div class="metric-card">
+                                            <div class="d-flex justify-content-between">
+                                                <span>${metricNameMap['precision_1'] || '精确率(P-1)'}:</span>
+                                                <span>${result.metrics.precision_1.toFixed(4)}</span>
+                                            </div>
+                                            <div class="progress">
+                                                <div class="progress-bar bg-danger" role="progressbar" style="width: ${result.metrics.precision_1 * 100}%"></div>
+                                            </div>
                                         </div>
                                     </div>
                                 </div>
                             </div>
-                        </div>
-                    `;
+                        `;
+                    }
+                    
+                    // 更新详细信息，避免不规范的转义序列
+                    detailsElement.style.display = 'block';
+                    detailsElement.innerHTML = detailsHTML;
                 });
                 
                 // 显示平均得分
                 metricsArea.innerHTML = '';
-                for (const [key, value] of Object.entries(avgScores)) {
-                    const metricKey = key.replace('avg_', '');
-                    const metricName = metricNameMap[metricKey] || key.replace('avg_', '').replace('_', '-').toUpperCase();
-                    metricsArea.innerHTML += `
-                        <div class="metric-card">
-                            <div class="d-flex justify-content-between">
-                                <span>${metricName}:</span>
-                                <span>${value.toFixed(4)}</span>
+                
+                if (isMultiModel) {
+                    // 为多模型创建分组显示
+                    for (const [modelName, modelAvg] of Object.entries(avgScores)) {
+                        metricsArea.innerHTML += `<h6 class="mb-2">${modelName}</h6>`;
+                        
+                        for (const [key, value] of Object.entries(modelAvg)) {
+                            if (key.startsWith('avg_')) {
+                                const metricKey = key.replace('avg_', '');
+                                const metricName = metricNameMap[metricKey] || key.replace('avg_', '').replace('_', '-').toUpperCase();
+                                metricsArea.innerHTML += `
+                                    <div class="metric-card">
+                                        <div class="d-flex justify-content-between">
+                                            <span>${metricName}:</span>
+                                            <span>${value.toFixed(4)}</span>
+                                        </div>
+                                        <div class="progress">
+                                            <div class="progress-bar" role="progressbar" style="width: ${value * 100}%"></div>
+                                        </div>
+                                    </div>
+                                `;
+                            }
+                        }
+                        
+                        // 不是最后一个模型就添加分隔线
+                        if (Object.keys(avgScores).indexOf(modelName) < Object.keys(avgScores).length - 1) {
+                            metricsArea.innerHTML += `<hr class="my-3">`;
+                        }
+                    }
+                } else {
+                    // 单一模型的显示方式
+                    for (const [key, value] of Object.entries(avgScores)) {
+                        const metricKey = key.replace('avg_', '');
+                        const metricName = metricNameMap[metricKey] || key.replace('avg_', '').replace('_', '-').toUpperCase();
+                        metricsArea.innerHTML += `
+                            <div class="metric-card">
+                                <div class="d-flex justify-content-between">
+                                    <span>${metricName}:</span>
+                                    <span>${value.toFixed(4)}</span>
+                                </div>
+                                <div class="progress">
+                                    <div class="progress-bar" role="progressbar" style="width: ${value * 100}%"></div>
+                                </div>
                             </div>
-                            <div class="progress">
-                                <div class="progress-bar" role="progressbar" style="width: ${value * 100}%"></div>
-                            </div>
-                        </div>
-                    `;
+                        `;
+                    }
                 }
                 
                 // 显示结果摘要区域
@@ -421,122 +608,323 @@
                 resultsSummary.innerHTML = `
                     <div class="alert alert-success">
                         <i class="bi bi-check-circle-fill"></i> 测试完成! 共测试了 ${results.length} 个问题。
-                    </div>
-                    
-                    <div class="row">
-                        <div class="col-md-6">
-                            <div class="card mb-3">
-                                <div class="card-header">主要指标平均分</div>
-                                <div class="card-body">
-                                    <canvas id="metricsChart"></canvas>
-                                </div>
-                            </div>
-                        </div>
-                        <div class="col-md-6">
-                            <div class="card mb-3">
-                                <div class="card-header">精确率与召回率</div>
-                                <div class="card-body">
-                                    <canvas id="precisionRecallChart"></canvas>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                    
-                    <div class="d-grid gap-2 d-md-flex justify-content-md-end">
-                        <a href="${downloadLink.href}" class="btn btn-success">
-                            <i class="bi bi-download"></i> 下载完整结果
-                        </a>
-                        <a href="{{ url_for('index') }}" class="btn btn-outline-primary">
-                            <i class="bi bi-arrow-left"></i> 返回首页
-                        </a>
+                        ${isMultiModel ? '使用了多模型对比模式。' : ''}
                     </div>
                 `;
                 
-                // 创建图表
-                const ctx1 = document.getElementById('metricsChart').getContext('2d');
-                new Chart(ctx1, {
-                    type: 'bar',
-                    data: {
-                        labels: [
-                            metricNameMap['rouge_1'] || 'ROUGE-1', 
-                            metricNameMap['rouge_2'] || 'ROUGE-2', 
-                            metricNameMap['rouge_l'] || 'ROUGE-L', 
-                            metricNameMap['keyword_match'] || '关键词匹配'
-                        ],
-                        datasets: [{
-                            label: '平均分',
-                            data: [
-                                avgScores.avg_rouge_1,
-                                avgScores.avg_rouge_2,
-                                avgScores.avg_rouge_l,
-                                avgScores.avg_keyword_match
-                            ],
-                            backgroundColor: [
-                                'rgba(54, 162, 235, 0.7)',
-                                'rgba(153, 102, 255, 0.7)',
-                                'rgba(75, 192, 192, 0.7)',
-                                'rgba(255, 159, 64, 0.7)'
-                            ],
-                            borderColor: [
-                                'rgba(54, 162, 235, 1)',
-                                'rgba(153, 102, 255, 1)',
-                                'rgba(75, 192, 192, 1)',
-                                'rgba(255, 159, 64, 1)'
-                            ],
-                            borderWidth: 1
-                        }]
-                    },
-                    options: {
-                        plugins: {
-                            legend: {
-                                display: false
-                            }
+                // 数据准备 - 根据单模型或多模型情况
+                if (isMultiModel) {
+                    // 多模型比较图表
+                    const modelNames = Object.keys(avgScores);
+                    const modelColors = {
+                        'deepseek-chat': {
+                            bg: 'rgba(54, 162, 235, 0.2)',
+                            border: 'rgba(54, 162, 235, 1)'
                         },
-                        scales: {
-                            y: {
-                                beginAtZero: true,
-                                max: 1
-                            }
-                        }
-                    }
-                });
-                
-                const ctx2 = document.getElementById('precisionRecallChart').getContext('2d');
-                new Chart(ctx2, {
-                    type: 'radar',
-                    data: {
-                        labels: [
-                            metricNameMap['precision_1'] || 'P-1', 
-                            metricNameMap['recall_1'] || 'R-1', 
-                            metricNameMap['precision_l'] || 'P-L', 
-                            metricNameMap['recall_l'] || 'R-L', 
-                            metricNameMap['keyword_precision'] || 'KW-P', 
-                            metricNameMap['keyword_recall'] || 'KW-R'
-                        ],
-                        datasets: [{
-                            label: '精确率与召回率',
-                            data: [
-                                avgScores.avg_precision_1,
-                                avgScores.avg_recall_1,
-                                avgScores.avg_precision_l,
-                                avgScores.avg_recall_l,
-                                avgScores.avg_keyword_precision,
-                                avgScores.avg_keyword_recall
+                        'gpt-4o': {
+                            bg: 'rgba(255, 99, 132, 0.2)',
+                            border: 'rgba(255, 99, 132, 1)'
+                        },
+                        // 可以添加更多模型的颜色
+                    };
+                    
+                    // 添加模型对比图表
+                    resultsSummary.innerHTML += `
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="card mb-3">
+                                    <div class="card-header">模型对比: ROUGE 指标</div>
+                                    <div class="card-body">
+                                        <canvas id="modelComparisonChart"></canvas>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="card mb-3">
+                                    <div class="card-header">模型对比: 关键词匹配与精确率/召回率</div>
+                                    <div class="card-body">
+                                        <canvas id="keywordComparisonChart"></canvas>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="row">
+                            <div class="col-12">
+                                <div class="card mb-3">
+                                    <div class="card-header">模型详细指标对比</div>
+                                    <div class="card-body">
+                                        <canvas id="modelRadarChart"></canvas>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="d-grid gap-2 d-md-flex justify-content-md-end">
+                            <a href="${downloadLink.href}" class="btn btn-success">
+                                <i class="bi bi-download"></i> 下载完整结果
+                            </a>
+                            <a href="{{ url_for('index') }}" class="btn btn-outline-primary">
+                                <i class="bi bi-arrow-left"></i> 返回首页
+                            </a>
+                        </div>
+                    `;
+                    
+                    // 创建ROUGE对比图表
+                    const ctxModelCompare = document.getElementById('modelComparisonChart').getContext('2d');
+                    new Chart(ctxModelCompare, {
+                        type: 'bar',
+                        data: {
+                            labels: [
+                                metricNameMap['rouge_1'] || 'ROUGE-1', 
+                                metricNameMap['rouge_2'] || 'ROUGE-2',
+                                metricNameMap['rouge_l'] || 'ROUGE-L'
                             ],
-                            backgroundColor: 'rgba(255, 99, 132, 0.2)',
-                            borderColor: 'rgba(255, 99, 132, 1)',
-                            borderWidth: 1
-                        }]
-                    },
-                    options: {
-                        scales: {
-                            r: {
-                                min: 0,
-                                max: 1
+                            datasets: modelNames.map((modelName, index) => {
+                                const colorInfo = modelColors[modelName] || {
+                                    bg: `rgba(${index * 100}, ${index * 50}, ${255 - index * 50}, 0.2)`,
+                                    border: `rgba(${index * 100}, ${index * 50}, ${255 - index * 50}, 1)`
+                                };
+                                
+                                return {
+                                    label: modelName,
+                                    data: [
+                                        avgScores[modelName].avg_rouge_1,
+                                        avgScores[modelName].avg_rouge_2,
+                                        avgScores[modelName].avg_rouge_l,
+                                    ],
+                                    backgroundColor: colorInfo.bg,
+                                    borderColor: colorInfo.border,
+                                    borderWidth: 1
+                                };
+                            })
+                        },
+                        options: {
+                            plugins: {
+                                legend: {
+                                    display: true,
+                                    position: 'top'
+                                }
+                            },
+                            scales: {
+                                y: {
+                                    beginAtZero: true,
+                                    max: 1
+                                }
                             }
                         }
-                    }
-                });
+                    });
+                    
+                    // 创建关键词匹配与精确率/召回率对比图表
+                    const ctxKeywordCompare = document.getElementById('keywordComparisonChart').getContext('2d');
+                    new Chart(ctxKeywordCompare, {
+                        type: 'bar',
+                        data: {
+                            labels: [
+                                metricNameMap['keyword_match'] || '关键词匹配',
+                                metricNameMap['precision_1'] || 'P-1',
+                                metricNameMap['recall_1'] || 'R-1'
+                            ],
+                            datasets: modelNames.map((modelName, index) => {
+                                const colorInfo = modelColors[modelName] || {
+                                    bg: `rgba(${index * 100}, ${index * 50}, ${255 - index * 50}, 0.2)`,
+                                    border: `rgba(${index * 100}, ${index * 50}, ${255 - index * 50}, 1)`
+                                };
+                                
+                                return {
+                                    label: modelName,
+                                    data: [
+                                        avgScores[modelName].avg_keyword_match,
+                                        avgScores[modelName].avg_precision_1,
+                                        avgScores[modelName].avg_recall_1
+                                    ],
+                                    backgroundColor: colorInfo.bg,
+                                    borderColor: colorInfo.border,
+                                    borderWidth: 1
+                                };
+                            })
+                        },
+                        options: {
+                            plugins: {
+                                legend: {
+                                    display: true,
+                                    position: 'top'
+                                }
+                            },
+                            scales: {
+                                y: {
+                                    beginAtZero: true,
+                                    max: 1
+                                }
+                            }
+                        }
+                    });
+                    
+                    // 创建雷达图比较所有指标
+                    const ctxRadar = document.getElementById('modelRadarChart').getContext('2d');
+                    new Chart(ctxRadar, {
+                        type: 'radar',
+                        data: {
+                            labels: [
+                                metricNameMap['rouge_1'] || 'ROUGE-1',
+                                metricNameMap['rouge_l'] || 'ROUGE-L',
+                                metricNameMap['keyword_match'] || '关键词匹配',
+                                metricNameMap['precision_1'] || 'P-1',
+                                metricNameMap['recall_1'] || 'R-1',
+                                metricNameMap['precision_l'] || 'P-L',
+                                metricNameMap['recall_l'] || 'R-L'
+                            ],
+                            datasets: modelNames.map((modelName, index) => {
+                                const colorInfo = modelColors[modelName] || {
+                                    bg: `rgba(${index * 100}, ${index * 50}, ${255 - index * 50}, 0.2)`,
+                                    border: `rgba(${index * 100}, ${index * 50}, ${255 - index * 50}, 1)`
+                                };
+                                
+                                return {
+                                    label: modelName,
+                                    data: [
+                                        avgScores[modelName].avg_rouge_1,
+                                        avgScores[modelName].avg_rouge_l,
+                                        avgScores[modelName].avg_keyword_match,
+                                        avgScores[modelName].avg_precision_1,
+                                        avgScores[modelName].avg_recall_1,
+                                        avgScores[modelName].avg_precision_l,
+                                        avgScores[modelName].avg_recall_l
+                                    ],
+                                    backgroundColor: colorInfo.bg,
+                                    borderColor: colorInfo.border,
+                                    borderWidth: 1
+                                };
+                            })
+                        },
+                        options: {
+                            scales: {
+                                r: {
+                                    beginAtZero: true,
+                                    max: 1
+                                }
+                            }
+                        }
+                    });
+                    
+                } else {
+                    // 单模型图表
+                    resultsSummary.innerHTML += `
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="card mb-3">
+                                    <div class="card-header">主要指标平均分</div>
+                                    <div class="card-body">
+                                        <canvas id="metricsChart"></canvas>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="card mb-3">
+                                    <div class="card-header">精确率与召回率</div>
+                                    <div class="card-body">
+                                        <canvas id="precisionRecallChart"></canvas>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="d-grid gap-2 d-md-flex justify-content-md-end">
+                            <a href="${downloadLink.href}" class="btn btn-success">
+                                <i class="bi bi-download"></i> 下载完整结果
+                            </a>
+                            <a href="{{ url_for('index') }}" class="btn btn-outline-primary">
+                                <i class="bi bi-arrow-left"></i> 返回首页
+                            </a>
+                        </div>
+                    `;
+                    
+                    // 创建图表
+                    const ctx1 = document.getElementById('metricsChart').getContext('2d');
+                    new Chart(ctx1, {
+                        type: 'bar',
+                        data: {
+                            labels: [
+                                metricNameMap['rouge_1'] || 'ROUGE-1', 
+                                metricNameMap['rouge_2'] || 'ROUGE-2', 
+                                metricNameMap['rouge_l'] || 'ROUGE-L', 
+                                metricNameMap['keyword_match'] || '关键词匹配'
+                            ],
+                            datasets: [{
+                                label: '平均分',
+                                data: [
+                                    avgScores.avg_rouge_1,
+                                    avgScores.avg_rouge_2,
+                                    avgScores.avg_rouge_l,
+                                    avgScores.avg_keyword_match
+                                ],
+                                backgroundColor: [
+                                    'rgba(54, 162, 235, 0.7)',
+                                    'rgba(153, 102, 255, 0.7)',
+                                    'rgba(75, 192, 192, 0.7)',
+                                    'rgba(255, 159, 64, 0.7)'
+                                ],
+                                borderColor: [
+                                    'rgba(54, 162, 235, 1)',
+                                    'rgba(153, 102, 255, 1)',
+                                    'rgba(75, 192, 192, 1)',
+                                    'rgba(255, 159, 64, 1)'
+                                ],
+                                borderWidth: 1
+                            }]
+                        },
+                        options: {
+                            plugins: {
+                                legend: {
+                                    display: false
+                                }
+                            },
+                            scales: {
+                                y: {
+                                    beginAtZero: true,
+                                    max: 1
+                                }
+                            }
+                        }
+                    });
+                    
+                    const ctx2 = document.getElementById('precisionRecallChart').getContext('2d');
+                    new Chart(ctx2, {
+                        type: 'radar',
+                        data: {
+                            labels: [
+                                metricNameMap['precision_1'] || 'P-1', 
+                                metricNameMap['recall_1'] || 'R-1', 
+                                metricNameMap['precision_l'] || 'P-L', 
+                                metricNameMap['recall_l'] || 'R-L', 
+                                metricNameMap['keyword_precision'] || 'KW-P', 
+                                metricNameMap['keyword_recall'] || 'KW-R'
+                            ],
+                            datasets: [{
+                                label: '精确率与召回率',
+                                data: [
+                                    avgScores.avg_precision_1,
+                                    avgScores.avg_recall_1,
+                                    avgScores.avg_precision_l,
+                                    avgScores.avg_recall_l,
+                                    avgScores.avg_keyword_precision,
+                                    avgScores.avg_keyword_recall
+                                ],
+                                backgroundColor: 'rgba(255, 99, 132, 0.2)',
+                                borderColor: 'rgba(255, 99, 132, 1)',
+                                borderWidth: 1
+                            }]
+                        },
+                        options: {
+                            scales: {
+                                r: {
+                                    min: 0,
+                                    max: 1
+                                }
+                            }
+                        }
+                    });
+                }
             }
         });
     </script>
