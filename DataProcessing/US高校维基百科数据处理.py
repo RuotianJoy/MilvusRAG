@@ -5,8 +5,9 @@ import numpy as np
 from tqdm import tqdm
 from dotenv import load_dotenv
 import logging
-from transformers import BertModel, BertTokenizer
+from sentence_transformers import SentenceTransformer  # 替换为sentence-transformers
 import torch
+from sklearn.decomposition import PCA  # 添加PCA用于降维
 
 # 配置日志
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -14,24 +15,23 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 # 加载环境变量
 load_dotenv()
 
-# 全局BERT模型和分词器
-BERT_MODEL = None
-BERT_TOKENIZER = None
-VECTOR_DIM = 768  # BERT base模型的向量维度
+# 全局模型变量
+MODEL = None
+VECTOR_DIM = 384  # MiniLM-L6模型的向量维度，比BERT的768小很多
+REDUCED_DIM = 128  # 降维后的向量维度
+PCA_MODEL = None  # 全局PCA模型
 
-def load_bert_model():
-    """加载BERT模型和分词器"""
-    global BERT_MODEL, BERT_TOKENIZER
-    if BERT_MODEL is None or BERT_TOKENIZER is None:
-        logging.info("加载BERT模型和分词器...")
+def load_model():
+    """加载轻量级的sentence-transformers模型"""
+    global MODEL
+    if MODEL is None:
+        logging.info("加载轻量级sentence-transformers模型...")
         try:
-            # 使用bert-base-uncased模型
-            model_name = "bert-base-uncased"
-            BERT_TOKENIZER = BertTokenizer.from_pretrained(model_name)
-            BERT_MODEL = BertModel.from_pretrained(model_name)
-            logging.info("BERT模型和分词器加载成功")
+            # 使用轻量级的MiniLM模型，只有384维
+            MODEL = SentenceTransformer('paraphrase-MiniLM-L6-v2')
+            logging.info("轻量级模型加载成功")
         except Exception as e:
-            logging.error(f"加载BERT模型时出错: {e}")
+            logging.error(f"加载轻量级模型时出错: {e}")
             raise
 
 def is_valid_record(record):
@@ -210,35 +210,19 @@ def process_website(url):
     return url
 
 def get_embedding(text):
-    """使用BERT获取文本嵌入向量"""
-    global BERT_MODEL, BERT_TOKENIZER
+    """使用轻量级模型获取文本嵌入向量"""
+    global MODEL, VECTOR_DIM
     
     if not text or text.strip() == "":
         return np.zeros(VECTOR_DIM)  # 返回零向量
     
     # 确保模型已加载
-    if BERT_MODEL is None or BERT_TOKENIZER is None:
-        load_bert_model()
+    if MODEL is None:
+        load_model()
     
     try:
-        # 预处理文本，截断过长的文本
-        max_seq_length = 512  # BERT最大序列长度
-        if len(text.split()) > max_seq_length * 0.8:  # 按词数粗略估计
-            # 截断过长的文本
-            words = text.split()
-            text = " ".join(words[:int(max_seq_length * 0.8)])
-            logging.warning(f"文本被截断，原长度：{len(words)} 词，截断后：{len(text.split())} 词")
-        
-        # 将文本转换为BERT输入格式
-        inputs = BERT_TOKENIZER(text, return_tensors="pt", truncation=True, max_length=max_seq_length)
-        
-        # 使用模型生成嵌入
-        with torch.no_grad():
-            outputs = BERT_MODEL(**inputs)
-        
-        # 使用[CLS]标记的最后隐层状态作为文本表示
-        embedding = outputs.last_hidden_state[:, 0, :].numpy().flatten()
-        
+        # 使用sentence-transformers直接获取嵌入
+        embedding = MODEL.encode(text)
         return embedding
     
     except Exception as e:
@@ -324,13 +308,34 @@ def create_text_for_vector(college, vector_type):
     
     return ""
 
+def reduce_dimensions(vectors):
+    """使用PCA降低向量维度"""
+    global PCA_MODEL, REDUCED_DIM
+    
+    # 如果没有向量，返回空列表
+    if not vectors or len(vectors) == 0:
+        return []
+    
+    # 初始化PCA模型
+    if PCA_MODEL is None:
+        logging.info(f"初始化PCA模型，降维从{VECTOR_DIM}到{REDUCED_DIM}...")
+        PCA_MODEL = PCA(n_components=REDUCED_DIM)
+        # 使用所有向量拟合PCA模型
+        PCA_MODEL.fit(vectors)
+        logging.info("PCA模型初始化完成")
+    
+    # 应用PCA降维
+    reduced_vectors = PCA_MODEL.transform(vectors)
+    
+    return reduced_vectors
+
 def process_data(input_file, output_file):
     """处理US高校维基百科数据"""
     logging.info(f"开始处理数据: {input_file}")
     
     try:
-        # 加载BERT模型
-        load_bert_model()
+        # 加载轻量级模型
+        load_model()
         
         # 读取原始数据
         with open(input_file, 'r', encoding='utf-8') as f:
