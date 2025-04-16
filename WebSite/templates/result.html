@@ -82,6 +82,31 @@
             color: #6c757d;
             font-size: 0.9rem;
         }
+        .source-tag {
+            display: inline-block;
+            padding: 0.25rem 0.5rem;
+            font-size: 0.8rem;
+            border-radius: 3px;
+            background-color: #e7f5ff;
+            color: #0d6efd;
+            margin-right: 0.5rem;
+            margin-bottom: 0.5rem;
+        }
+        .data-source-report {
+            margin-bottom: 2rem;
+        }
+        .source-bar {
+            background-color: #e7f5ff;
+            border-radius: 5px;
+            padding: 0.5rem;
+            margin-bottom: 0.5rem;
+        }
+        .source-detail {
+            background-color: #f8f9fa;
+            border-radius: 5px;
+            padding: 0.75rem;
+            margin-top: 0.5rem;
+        }
     </style>
 </head>
 <body>
@@ -129,6 +154,51 @@
 
     <!-- 主要内容 -->
     <div class="container">
+        <!-- 数据来源报告 -->
+        {% if source_stats %}
+        <div class="row mb-4">
+            <div class="col-12">
+                <div class="card data-source-report">
+                    <div class="card-header">
+                        <h5 class="mb-0"><i class="bi bi-pie-chart-fill"></i> 数据来源统计报告</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="row">
+                            <div class="col-md-6">
+                                <canvas id="sourceChart" width="400" height="300"></canvas>
+                            </div>
+                            <div class="col-md-6">
+                                <h6 class="mb-3">数据来源使用频率</h6>
+                                {% for source, count in source_stats.items()|sort(reverse=true, attribute='1') %}
+                                <div class="source-bar">
+                                    <div class="d-flex justify-content-between align-items-center">
+                                        <div class="source-name text-break" title="{{ source }}">
+                                            {% if source|length > 30 %}
+                                                {{ source[:30] }}...
+                                            {% else %}
+                                                {{ source }}
+                                            {% endif %}
+                                        </div>
+                                        <div class="badge bg-primary">{{ count }}次</div>
+                                    </div>
+                                    <div class="progress mt-2">
+                                        <div class="progress-bar bg-info" role="progressbar" 
+                                            style="width: {{ (count / results_data|length * 100)|round }}%" 
+                                            aria-valuenow="{{ count }}" aria-valuemin="0" 
+                                            aria-valuemax="{{ results_data|length }}">
+                                            {{ (count / results_data|length * 100)|round|int }}%
+                                        </div>
+                                    </div>
+                                </div>
+                                {% endfor %}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        {% endif %}
+
         <div class="row">
             <!-- 左侧概述 -->
             <div class="col-md-4 mb-4">
@@ -222,6 +292,35 @@
                             {% for item in results_data %}
                                 <div class="test-item mb-4">
                                     <h5>{{ loop.index }}. {{ item.question }}</h5>
+                                    
+                                    <!-- 数据来源标签 -->
+                                    {% if item.sources %}
+                                    <div class="mb-3">
+                                        <h6 class="mb-2"><i class="bi bi-diagram-3"></i> 数据来源:</h6>
+                                        <div>
+                                            {% for source in item.sources %}
+                                                {% if source and source != '' %}
+                                                <span class="source-tag">{{ source }}</span>
+                                                {% endif %}
+                                            {% endfor %}
+                                        </div>
+                                    </div>
+                                    {% endif %}
+
+                                    <!-- 详细上下文 -->
+                                    {% if item.context %}
+                                    <div class="mb-3">
+                                        <button class="btn btn-sm btn-outline-secondary mb-2" type="button" 
+                                                data-bs-toggle="collapse" data-bs-target="#context-{{ loop.index }}">
+                                            <i class="bi bi-chevron-down"></i> 显示检索内容
+                                        </button>
+                                        <div class="collapse" id="context-{{ loop.index }}">
+                                            <div class="source-detail">
+                                                <pre style="white-space: pre-wrap; font-size: 0.9rem;">{{ item.context }}</pre>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    {% endif %}
                                     
                                     <!-- 参考答案始终显示 -->
                                     <div class="card mb-3">
@@ -355,6 +454,7 @@
 
     <!-- JavaScript依赖 -->
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
     <!-- 添加指标映射脚本 -->
     <script>
@@ -402,6 +502,64 @@
                     }
                 }
             });
+
+            // 绘制数据来源饼图
+            const sourceChartElement = document.getElementById('sourceChart');
+            if (sourceChartElement) {
+                const ctx = sourceChartElement.getContext('2d');
+                
+                // 准备数据
+                const sourceStats = {{ source_stats|tojson }};
+                const sources = Object.keys(sourceStats);
+                const counts = Object.values(sourceStats);
+                
+                // 生成随机颜色
+                const backgroundColors = sources.map((_, i) => {
+                    return `hsl(${i * 360 / sources.length}, 70%, 60%)`;
+                });
+                
+                new Chart(ctx, {
+                    type: 'doughnut',
+                    data: {
+                        labels: sources.map(source => source.length > 20 ? source.substring(0, 20) + '...' : source),
+                        datasets: [{
+                            data: counts,
+                            backgroundColor: backgroundColors,
+                            borderWidth: 1
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        plugins: {
+                            legend: {
+                                position: 'bottom',
+                                labels: {
+                                    boxWidth: 15,
+                                    padding: 10,
+                                    font: {
+                                        size: 10
+                                    }
+                                }
+                            },
+                            title: {
+                                display: true,
+                                text: '数据来源分布'
+                            },
+                            tooltip: {
+                                callbacks: {
+                                    label: function(context) {
+                                        const label = sources[context.dataIndex] || '';
+                                        const value = context.raw;
+                                        const total = context.dataset.data.reduce((acc, val) => acc + val, 0);
+                                        const percentage = Math.round((value / total) * 100);
+                                        return `${label}: ${value}次 (${percentage}%)`;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                });
+            }
         });
     </script>
 </body>

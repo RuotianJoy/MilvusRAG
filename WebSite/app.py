@@ -11,16 +11,34 @@ import pandas as pd
 import csv
 import json
 import time
-from flask import Flask, render_template, request, redirect, url_for, flash, jsonify, send_from_directory, session
+from flask import Flask, render_template, request, redirect, url_for, flash, jsonify, send_from_directory, session, Response
 from werkzeug.utils import secure_filename
 from pymilvus import connections, utility, Collection, DataType
 import sys
 import uuid
 from datetime import datetime
+import numpy as np
+import math
+from sentence_transformers import SentenceTransformer
+from sklearn.decomposition import PCA
+import re
+import traceback
 
 # 禁用PyTorch MPS加速，避免Apple Silicon上的图形处理器错误
 os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1" 
 os.environ["PYTORCH_MPS_HIGH_WATERMARK_RATIO"] = "0.0"
+
+# 添加自定义JSON编码器
+class NumpyEncoder(json.JSONEncoder):
+    """处理NumPy数据类型的JSON编码器"""
+    def default(self, obj):
+        if isinstance(obj, np.integer):
+            return int(obj)
+        elif isinstance(obj, np.floating):
+            return float(obj)
+        elif isinstance(obj, np.ndarray):
+            return obj.tolist()
+        return super(NumpyEncoder, self).default(obj)
 
 # 添加API密钥环境变量检查
 # 这里您需要替换为自己的API密钥
@@ -44,6 +62,9 @@ app.config['UPLOAD_FOLDER'] = os.path.join(os.path.dirname(os.path.abspath(__fil
 app.config['MAX_CONTENT_LENGTH'] = 32 * 1024 * 1024  # 限制上传文件大小为32MB
 app.config['ALLOWED_EXTENSIONS'] = {'csv', 'xlsx'}
 app.config['SESSION_TYPE'] = 'filesystem'  # 使用文件系统存储会话数据
+app.config['JSONIFY_PRETTYPRINT_REGULAR'] = False  # 禁用JSON美化，减少响应大小
+app.config['JSON_SORT_KEYS'] = False  # 禁用JSON键排序，保持原始顺序
+app.json.encoder = NumpyEncoder  # 使用自定义JSON编码器
 
 # Milvus连接配置
 MILVUS_HOST = '127.0.0.1'  # 默认本地主机
@@ -61,6 +82,79 @@ if not os.path.exists(app.config['RESULTS_HISTORY_FILE']):
 
 # 确保上传文件夹存在
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
+
+# 创建一个全局字典来存储每个会话的进度信息
+session_progress = {}
+
+# 集合名称映射 - 将技术名称映射为人类可读的名称
+COLLECTION_NAME_MAP = {
+    "arwu_text": "ARWU文本集合",
+    "arwu_score": "ARWU评分集合",
+    "arwu_enhanced": "ARWU增强集合",
+    "us_colleges": "美国高校集合",
+    "university_subjects": "大学学科集合",
+    "usnews2025_school_subject_relations_text": "USNews学校学科关系集合",
+    "usnews2025_school_subject_relations": "USNews学校学科关系集合",
+    "usnews2025_subjects": "USNews学科集合",
+    "university_base": "大学基础信息集合",
+    "university_summary": "大学摘要集合",
+    "the2025_subjects": "THE2025学科集合",
+    "university_statistics": "大学统计数据集合",
+    "the2025_basic_info": "THE2025基本信息集合",
+    "the2025_metrics": "THE2025指标集合",
+    "the2025_meta": "THE2025元数据集合",
+    "university_indicators": "大学指标集合",
+    "usnews2025_schools": "USNews2025高校集合",
+    "us_colleges_WIKI": "美国高校维基数据集合",
+}
+
+def normalize_source_name(source):
+    """规范化数据来源名称，将技术名称转换为人类可读名称"""
+    source = str(source).strip()
+    
+    # 如果为空，直接返回
+    if not source:
+        return ""
+        
+    # 处理嵌套格式（如"xxx:yyy"，保留最后部分）
+    if ":" in source:
+        parts = source.split(":")
+        source = parts[-1].strip()
+    
+    # 处理关键词搜索格式
+    if "关键词搜索" in source:
+        keyword_match = re.search(r'\(([^)]+)\)', source)
+        if keyword_match:
+            source = keyword_match.group(1).strip()
+    
+    # 处理"来源: xxx"格式
+    if "来源:" in source:
+        source_match = re.search(r'来源: ([^)]+)', source)
+        if source_match:
+            source = source_match.group(1).strip()
+            
+    # 应用集合名称映射
+    if source in COLLECTION_NAME_MAP:
+        return COLLECTION_NAME_MAP[source]
+        
+    # 对技术名称进行一些简单处理
+    if source.startswith("arwu_"):
+        prefix = "ARWU"
+        suffix = source[5:]
+        return f"{prefix}{suffix.capitalize()}集合"
+    
+    if source.startswith("the2025_"):
+        prefix = "THE2025"
+        suffix = source[8:]
+        return f"{prefix}{suffix.capitalize()}集合"
+        
+    if source.startswith("usnews"):
+        prefix = "USNews"
+        suffix = source[6:]
+        return f"{prefix}{suffix}集合"
+        
+    # 如果没有匹配到任何规则，原样返回
+    return source
 
 def allowed_file(filename):
     """检查文件扩展名是否允许上传"""
@@ -289,6 +383,29 @@ def test_result(test_id):
                 else:
                     is_multi_model = False
             
+            # 统计数据来源
+            source_stats = {}
+            if 'Sources' in df.columns:
+                for source_list in df['Sources'].dropna():
+                    # 确保source_list是字符串
+                    if isinstance(source_list, str):
+                        sources = source_list.split(', ')
+                        for source in sources:
+                            source = source.strip()
+                            if not source:
+                                continue
+                                
+                            # 使用规范化函数处理数据来源
+                            normalized_source = normalize_source_name(source)
+                            
+                            if normalized_source:  # 确保不是空字符串
+                                if normalized_source in source_stats:
+                                    source_stats[normalized_source] += 1
+                                else:
+                                    source_stats[normalized_source] = 1
+                    else:
+                        app.logger.warning(f"跳过非字符串类型的数据来源: {source_list}")
+            
             # 根据是否多模型测试处理数据
             results_data = []
             
@@ -303,13 +420,22 @@ def test_result(test_id):
                         continue
                         
                     # 基本信息
+                    # 安全处理Sources列
+                    sources = []
+                    if 'Sources' in question_df.columns:
+                        sources_value = question_df.iloc[0].get('Sources', '')
+                        if isinstance(sources_value, str):
+                            sources = sources_value.split(', ')
+                    
                     item = {
                         'question': question,
                         'reference': question_df.iloc[0]['Reference'],
                         'retrieval_time': float(question_df.iloc[0]['Retrieval_Time']),
                         'is_multi_model': True,
                         'model_answers': {},
-                        'model_metrics': {}
+                        'model_metrics': {},
+                        'sources': sources,
+                        'context': question_df.iloc[0].get('Context', '') if 'Context' in question_df.columns else ''
                     }
                     
                     # 填充各模型的数据
@@ -320,7 +446,7 @@ def test_result(test_id):
                         # 添加该模型的指标
                         metrics = {}
                         for col in row.index:
-                            if col not in ['Question', 'Reference', 'Generated', 'Retrieval_Time', 'Model']:
+                            if col not in ['Question', 'Reference', 'Generated', 'Retrieval_Time', 'Model', 'Sources', 'Context']:
                                 try:
                                     # 确保值是浮点数
                                     metrics[col] = float(row[col])
@@ -334,17 +460,26 @@ def test_result(test_id):
             else:
                 # 单模型测试情况
                 for _, row in df.iterrows():
+                    # 安全处理Sources列
+                    sources = []
+                    if 'Sources' in df.columns:
+                        sources_value = row.get('Sources', '')
+                        if isinstance(sources_value, str):
+                            sources = sources_value.split(', ')
+                    
                     item = {
                         'question': row['Question'],
                         'reference': row['Reference'],
                         'generated': row['Generated'],
                         'retrieval_time': float(row['Retrieval_Time']),
                         'is_multi_model': False,
-                        'metrics': {}
+                        'metrics': {},
+                        'sources': sources,
+                        'context': row.get('Context', '') if 'Context' in df.columns else ''
                     }
                     # 添加指标
                     for col in df.columns:
-                        if col not in ['Question', 'Reference', 'Generated', 'Retrieval_Time', 'Model']:
+                        if col not in ['Question', 'Reference', 'Generated', 'Retrieval_Time', 'Model', 'Sources', 'Context']:
                             try:
                                 # 确保值是浮点数
                                 item['metrics'][col] = float(row[col])
@@ -357,7 +492,8 @@ def test_result(test_id):
             return render_template('result.html', 
                                 result=result, 
                                 results_data=results_data,
-                                is_multi_model=is_multi_model)
+                                is_multi_model=is_multi_model,
+                                source_stats=source_stats)
         else:
             flash('结果文件不存在', 'warning')
             return redirect(url_for('test_history'))
@@ -368,9 +504,127 @@ def test_result(test_id):
         flash(f'读取结果文件失败: {str(e)}', 'danger')
         return redirect(url_for('test_history'))
 
-@app.route('/run_test', methods=['POST'])
+@app.route('/progress/<session_id>')
+def progress_stream(session_id):
+    """为特定会话ID返回SSE进度流"""
+    def generate():
+        # 初始化该会话的进度
+        if session_id not in session_progress:
+            session_progress[session_id] = {"current": 0, "total": 0, "results": []}
+        
+        # 发送初始数据
+        yield f"data: {json.dumps(session_progress[session_id], cls=NumpyEncoder)}\n\n"
+        
+        # 使用循环和休眠来等待进度更新
+        last_progress = -1
+        while True:
+            current_progress = session_progress.get(session_id, {}).get("current", 0)
+            total = session_progress.get(session_id, {}).get("total", 0)
+            
+            # 只有当进度发生变化或收到结果时才发送更新
+            if current_progress != last_progress:
+                yield f"data: {json.dumps(session_progress[session_id], cls=NumpyEncoder)}\n\n"
+                last_progress = current_progress
+            
+            # 如果测试完成，中断流
+            if total > 0 and current_progress >= total:
+                yield f"data: {json.dumps({'completed': True, **session_progress[session_id]}, cls=NumpyEncoder)}\n\n"
+                # 不再在这里删除会话数据，让客户端有机会获取完整结果
+                # 会话数据将在GET /run_test接口中被清理
+                break
+                
+            time.sleep(0.5)  # 减少服务器负载
+    
+    return Response(generate(), mimetype='text/event-stream')
+
+@app.route('/run_test', methods=['POST', 'GET'])
 def run_test():
     """执行测试并返回结果"""
+    # 如果是GET请求，则返回完整结果
+    if request.method == 'GET':
+        session_id = request.args.get('session_id')
+        if not session_id or session_id not in session_progress:
+            return jsonify({
+                'status': 'error',
+                'message': '找不到对应的会话数据'
+            }), 404
+        
+        # 获取会话数据
+        progress_data = session_progress[session_id]
+        
+        # 计算平均得分
+        avg_scores = calculate_average_scores(progress_data['results'])
+        
+        # 如果已经有结果文件，返回文件名
+        result_filename = f"test_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+        try:
+            # 保存结果到CSV
+            result_filepath = os.path.join(app.config['UPLOAD_FOLDER'], result_filename)
+            save_results_to_csv(progress_data['results'], result_filepath)
+            
+            # 创建唯一测试ID
+            test_id = str(uuid.uuid4())
+            
+            # 检查第一个结果项以确定是否为多模型测试
+            use_multi_model = progress_data['results'][0].get('multi_model', False) if progress_data['results'] else False
+            
+            # 统计数据来源使用情况
+            source_stats = {}
+            for item in progress_data['results']:
+                for source in item.get('sources', []):
+                    # 跳过空或None的source
+                    if not source:
+                        continue
+                    
+                    # 使用规范化函数处理数据来源
+                    normalized_source = normalize_source_name(source)
+                    
+                    if normalized_source:  # 确保不是空字符串
+                        if normalized_source in source_stats:
+                            source_stats[normalized_source] += 1
+                        else:
+                            source_stats[normalized_source] = 1
+            
+            # 对于单模型情况，将avg_scores包装在以模型名为键的字典中，以与历史记录格式匹配
+            if not use_multi_model:
+                # 获取模型名称
+                model_name = "default"
+                if progress_data['results'] and len(progress_data['results']) > 0:
+                    # 尝试从结果中获取模型名称
+                    for result in progress_data['results']:
+                        if 'model' in result:
+                            model_name = result['model']
+                            break
+                
+                # 将avg_scores包装在以模型名为键的字典中
+                wrapped_avg_scores = {model_name: avg_scores}
+                
+                # 添加到历史记录
+                add_to_history(test_id, f"测试_{datetime.now().strftime('%Y%m%d')}", len(progress_data['results']), result_filename, wrapped_avg_scores)
+            else:
+                # 多模型情况不需要额外处理
+                add_to_history(test_id, f"测试_{datetime.now().strftime('%Y%m%d')}", len(progress_data['results']), result_filename, avg_scores)
+            
+            # 从会话数据中删除，节约内存
+            if session_id in session_progress:
+                del session_progress[session_id]
+                
+        except Exception as e:
+            app.logger.error(f"保存结果文件失败: {str(e)}")
+            result_filename = None
+        
+        return jsonify({
+            'status': 'success',
+            'results': progress_data['results'],
+            'avg_scores': avg_scores,
+            'result_file': result_filename,
+            'test_id': test_id,
+            'models': list(progress_data['results'][0].get('model_answers', {}).keys()) if use_multi_model and progress_data['results'] else ["deepseek-chat"],
+            'multi_model': use_multi_model,
+            'source_stats': source_stats
+        })
+    
+    # 以下是POST请求的处理逻辑
     app.logger.info("收到执行测试请求")
     
     try:
@@ -470,10 +724,19 @@ def run_test():
                 'message': '没有可用的向量集合'
             }), 500
         
-        # 对每个问题执行测试
+        # 初始化会话进度
         max_questions = min(len(df), 50)  # 限制处理数量，避免过长时间
+        session_progress[session_id] = {
+            "current": 0,
+            "total": max_questions,
+            "results": []
+        }
         app.logger.info(f"将处理前{max_questions}个问题")
         
+        # 创建唯一测试ID
+        test_id = str(uuid.uuid4())
+        
+        # 对每个问题执行测试
         for idx, row in df.iterrows():
             if idx >= max_questions:
                 break
@@ -490,6 +753,34 @@ def run_test():
                 # 检索知识
                 app.logger.info("开始检索知识...")
                 context = RAG_TestingAndEvaluation.load_knowledge_variables(knowledge_collections, user_input, top_k=3)
+                
+                # 提取数据来源信息
+                sources = []
+                try:
+                    for line in context.split('\n'):
+                        if line.startswith("以下信息来自"):
+                            # 处理基本格式：以下信息来自XXX:
+                            source_text = line.replace("以下信息来自", "").strip()
+                            
+                            # 使用规范化函数处理数据来源
+                            normalized_source = normalize_source_name(source_text)
+                            if normalized_source and normalized_source not in sources:
+                                sources.append(normalized_source)
+                                
+                        # 处理搜索结果格式：搜索结果 #n (ID: xx, 来源: xxx)
+                        elif "搜索结果" in line and "来源:" in line:
+                            source_match = re.search(r'来源: ([^)]+)(?:\))?', line)
+                            if source_match:
+                                source = source_match.group(1).strip()
+                                normalized_source = normalize_source_name(source)
+                                if normalized_source and normalized_source not in sources:
+                                    sources.append(normalized_source)
+                except Exception as source_error:
+                    app.logger.error(f"提取数据来源时出错: {str(source_error)}")
+                    app.logger.error(traceback.format_exc())
+                    sources = ["未知数据来源"]
+                
+                app.logger.info(f"获取到数据来源: {sources}")
                 
                 # 根据设置决定是使用单一模型还是多模型对比
                 if use_multi_model:
@@ -513,7 +804,9 @@ def run_test():
                         'model_answers': model_answers,
                         'model_metrics': model_metrics,
                         'retrieval_time': retrieval_time,
-                        'multi_model': True
+                        'multi_model': True,
+                        'sources': sources,
+                        'context': context
                     }
                 else:
                     # 单一模型生成
@@ -537,16 +830,21 @@ def run_test():
                         'generated': generated_answer,
                         'retrieval_time': retrieval_time,
                         'metrics': metrics,
-                        'multi_model': False
+                        'multi_model': False,
+                        'sources': sources,
+                        'context': context
                     }
                 
                 results_data.append(result_item)
+                
+                # 更新进度信息
+                session_progress[session_id]["current"] = idx + 1
+                session_progress[session_id]["results"].append(result_item)
+                
                 app.logger.info(f"问题 {idx+1} 处理完成")
                 
             except Exception as question_error:
                 app.logger.error(f"处理问题 {idx+1} 时出错: {str(question_error)}")
-                import traceback
-                app.logger.error(traceback.format_exc())
         
         # 计算平均分数
         avg_scores = {}
@@ -566,21 +864,52 @@ def run_test():
                             model_avg[f'avg_{metric}'] = 0
                     avg_scores[model] = model_avg
             else:
-                # 单一模型的情况 - 使用模型名作为键创建嵌套字典结构
-                model_name = models[0] if models else "deepseek-chat"
-                model_avg = {}
+                # 单一模型情况
+                count = len(results_data)
+                avg_metrics = {
+                    'avg_rouge_1': 0,
+                    'avg_rouge_2': 0,
+                    'avg_rouge_l': 0,
+                    'avg_keyword_match': 0,
+                    'avg_precision_1': 0,
+                    'avg_recall_1': 0,
+                    'avg_precision_l': 0,
+                    'avg_recall_l': 0,
+                    'avg_keyword_precision': 0,
+                    'avg_keyword_recall': 0
+                }
                 
-                # 对每个指标计算平均值
-                for metric in results_data[0]['metrics']:
-                    try:
-                        model_avg[f'avg_{metric}'] = sum(item['metrics'].get(metric, 0) for item in results_data) / len(results_data)
-                    except:
-                        model_avg[f'avg_{metric}'] = 0
+                for result in results_data:
+                    for metric_name, value in result.get('metrics', {}).items():
+                        avg_key = f'avg_{metric_name}'
+                        if avg_key in avg_metrics:
+                            avg_metrics[avg_key] += value
                 
-                # 将模型平均值放入带有模型名称的字典中
-                avg_scores[model_name] = model_avg
+                # 计算平均值
+                if count > 0:
+                    for key in avg_metrics:
+                        avg_metrics[key] = avg_metrics[key] / count
+                
+                avg_scores = avg_metrics
         
         app.logger.info(f"计算得到的平均分数: {avg_scores}")
+        
+        # 统计数据来源使用情况
+        source_stats = {}
+        for item in results_data:
+            for source in item.get('sources', []):
+                # 跳过空或None的source
+                if not source:
+                    continue
+                
+                # 使用规范化函数处理数据来源
+                normalized_source = normalize_source_name(source)
+                
+                if normalized_source:  # 确保不是空字符串
+                    if normalized_source in source_stats:
+                        source_stats[normalized_source] += 1
+                    else:
+                        source_stats[normalized_source] = 1
         
         # 生成测试ID
         test_id = str(uuid.uuid4())
@@ -600,7 +929,9 @@ def run_test():
                     base_row = {
                         'Question': item['question'],
                         'Reference': item['reference'],
-                        'Retrieval_Time': item['retrieval_time']
+                        'Retrieval_Time': item['retrieval_time'],
+                        'Sources': ', '.join([str(src) for src in normalize_sources_list(item.get('sources', []))]),  # 规范化数据来源
+                        'Context': item.get('context', '')[:1000]  # 限制上下文长度
                     }
                     
                     # 为每个模型创建一行
@@ -617,14 +948,16 @@ def run_test():
                                 
                             result_rows.append(row)
             else:
-                # 单一模型结果保存
+                # 单一模型结果
                 for item in results_data:
                     row = {
                         'Question': item['question'],
                         'Reference': item['reference'],
                         'Generated': item['generated'],
                         'Retrieval_Time': item['retrieval_time'],
-                        'Model': models[0] if models else "deepseek-chat"
+                        'Model': item.get('model', models[0] if 'models' in locals() else "deepseek-chat"),
+                        'Sources': ', '.join([str(src) for src in normalize_sources_list(item.get('sources', []))]),  # 规范化数据来源
+                        'Context': item.get('context', '')[:1000]  # 限制上下文长度
                     }
                     # 添加所有指标
                     for metric, value in item['metrics'].items():
@@ -647,7 +980,8 @@ def run_test():
             'result_file': result_filename,
             'test_id': test_id,
             'models': models,
-            'multi_model': use_multi_model
+            'multi_model': use_multi_model,
+            'source_stats': source_stats
         })
     
     except Exception as e:
@@ -851,10 +1185,32 @@ def get_collection_data(collection_name):
         except:
             pass
             
+        # 处理结果中的NumPy类型
+        processed_results = []
+        for item in results:
+            processed_item = {}
+            for key, value in item.items():
+                # 处理NumPy类型
+                if isinstance(value, np.ndarray):
+                    if key.endswith('_vector') or len(value) > 20:  # 向量字段或大数组
+                        processed_item[key] = {
+                            "type": "vector",
+                            "dim": len(value)
+                        }
+                    else:
+                        processed_item[key] = value.tolist()
+                elif isinstance(value, np.integer):
+                    processed_item[key] = int(value)
+                elif isinstance(value, np.floating):
+                    processed_item[key] = float(value)
+                else:
+                    processed_item[key] = value
+            processed_results.append(processed_item)
+            
         response_data = {
             'status': 'success',
-            'data': results,
-            'count': len(results),
+            'data': processed_results,
+            'count': len(processed_results),
             'total_count': total_count,
             'total_pages': total_pages,
             'current_page': page,
@@ -895,6 +1251,205 @@ def connect_to_milvus():
     except Exception as e:
         print(f"Milvus连接失败: {e}")
         return False
+
+def get_embedding_model(required_dim):
+    """根据需要的维度返回合适的嵌入模型"""
+    if required_dim == 384:
+        return SentenceTransformer('all-MiniLM-L6-v2')
+    elif required_dim == 768:
+        return SentenceTransformer('all-MiniLM-L6-v2')
+    else:
+        # 默认使用384维模型，然后进行适当的降维
+        return SentenceTransformer('all-MiniLM-L6-v2')
+
+def adapt_vector_dimension(vector, target_dim, method='pca'):
+    """调整向量维度的高级方法"""
+    if len(vector) == target_dim:
+        return vector
+    
+    if len(vector) < target_dim:
+        # 从低维到高维，使用更智能的上采样
+        if method == 'repeat':
+            # 重复向量元素并截断
+            repeat_factor = math.ceil(target_dim / len(vector))
+            extended = np.tile(vector, repeat_factor)[:target_dim]
+            return extended
+        elif method == 'interpolation':
+            # 使用插值方法
+            x = np.linspace(0, 1, len(vector))
+            x_new = np.linspace(0, 1, target_dim)
+            return np.interp(x_new, x, vector)
+    else:
+        # 从高维到低维，使用降维方法
+        if method == 'pca':
+            # 使用PCA降维
+            pca = PCA(n_components=target_dim)
+            return pca.fit_transform([vector])[0]
+        elif method == 'truncate':
+            # 简单截断
+            return vector[:target_dim]
+    
+    return vector  # 默认返回原向量
+
+def prepare_vector_for_metric(vector, metric_type):
+    """根据度量类型准备向量"""
+    if metric_type.upper() == 'COSINE':
+        # COSINE度量需要归一化向量
+        norm = np.linalg.norm(vector)
+        if norm > 0:
+            return vector / norm
+    # L2度量不需要特殊处理
+    return vector
+
+# 添加计算平均分数的辅助函数
+def calculate_average_scores(results):
+    """计算所有测试结果的平均分数"""
+    if not results:
+        return {}
+    
+    # 检查是否使用多模型
+    use_multi_model = results[0].get('multi_model', False) if results else False
+    
+    if use_multi_model:
+        # 多模型情况下，为每个模型单独计算平均分
+        model_metrics = {}
+        
+        # 初始化模型列表
+        for result in results:
+            for model_name in result.get('model_metrics', {}).keys():
+                if model_name not in model_metrics:
+                    model_metrics[model_name] = {
+                        'count': 0,
+                        'avg_rouge_1': 0,
+                        'avg_rouge_2': 0,
+                        'avg_rouge_l': 0,
+                        'avg_keyword_match': 0,
+                        'avg_precision_1': 0,
+                        'avg_recall_1': 0,
+                        'avg_precision_l': 0,
+                        'avg_recall_l': 0,
+                        'avg_keyword_precision': 0,
+                        'avg_keyword_recall': 0
+                    }
+        
+        # 累加每个模型的指标
+        for result in results:
+            for model_name, metrics in result.get('model_metrics', {}).items():
+                model_metrics[model_name]['count'] += 1
+                
+                for metric_name, value in metrics.items():
+                    avg_key = f'avg_{metric_name}'
+                    if avg_key in model_metrics[model_name]:
+                        model_metrics[model_name][avg_key] += value
+        
+        # 计算每个模型的平均值
+        for model_name, metrics in model_metrics.items():
+            count = metrics['count']
+            if count > 0:
+                for key in list(metrics.keys()):
+                    if key != 'count':
+                        metrics[key] = metrics[key] / count
+        
+        return model_metrics
+    else:
+        # 单一模型情况
+        count = len(results)
+        avg_metrics = {
+            'avg_rouge_1': 0,
+            'avg_rouge_2': 0,
+            'avg_rouge_l': 0,
+            'avg_keyword_match': 0,
+            'avg_precision_1': 0,
+            'avg_recall_1': 0,
+            'avg_precision_l': 0,
+            'avg_recall_l': 0,
+            'avg_keyword_precision': 0,
+            'avg_keyword_recall': 0
+        }
+        
+        for result in results:
+            for metric_name, value in result.get('metrics', {}).items():
+                avg_key = f'avg_{metric_name}'
+                if avg_key in avg_metrics:
+                    avg_metrics[avg_key] += value
+        
+        # 计算平均值
+        if count > 0:
+            for key in avg_metrics:
+                avg_metrics[key] = avg_metrics[key] / count
+        
+        return avg_metrics
+
+def normalize_sources_list(sources):
+    """规范化数据来源列表，用于统一显示"""
+    if not sources:
+        return []
+    
+    normalized_sources = []
+    unique_sources = set()  # 用于去重
+    
+    for source in sources:
+        normalized = normalize_source_name(source)
+        if normalized and normalized not in unique_sources:
+            normalized_sources.append(normalized)
+            unique_sources.add(normalized)
+            
+    return normalized_sources
+
+def save_results_to_csv(results, filepath):
+    """将测试结果保存到CSV文件"""
+    if not results:
+        return
+    
+    # 检查是否为多模型
+    use_multi_model = results[0].get('multi_model', False) if results else False
+    
+    result_rows = []
+    if use_multi_model:
+        # 多模型结果
+        for item in results:
+            base_row = {
+                'Question': item['question'],
+                'Reference': item['reference'],
+                'Retrieval_Time': item['retrieval_time'],
+                'Sources': ', '.join([str(src) for src in normalize_sources_list(item.get('sources', []))]),  # 规范化数据来源
+                'Context': item.get('context', '')[:1000]  # 限制上下文长度
+            }
+            
+            # 为每个模型添加一行
+            for model_name, answer in item.get('model_answers', {}).items():
+                row = base_row.copy()
+                row['Model'] = model_name
+                row['Generated'] = answer
+                
+                # 添加该模型的评估指标
+                metrics = item.get('model_metrics', {}).get(model_name, {})
+                for metric_name, value in metrics.items():
+                    row[metric_name] = value
+                
+                result_rows.append(row)
+    else:
+        # 单一模型结果
+        for item in results:
+            row = {
+                'Question': item['question'],
+                'Reference': item['reference'],
+                'Generated': item['generated'],
+                'Retrieval_Time': item['retrieval_time'],
+                'Model': item.get('model', models[0] if 'models' in locals() else "deepseek-chat"),
+                'Sources': ', '.join([str(src) for src in normalize_sources_list(item.get('sources', []))]),  # 规范化数据来源
+                'Context': item.get('context', '')[:1000]  # 限制上下文长度
+            }
+            
+            # 添加所有指标
+            for metric_name, value in item.get('metrics', {}).items():
+                row[metric_name] = value
+            
+            result_rows.append(row)
+    
+    # 创建DataFrame并保存
+    result_df = pd.DataFrame(result_rows)
+    result_df.to_csv(filepath, index=False, encoding='utf-8-sig')
 
 if __name__ == '__main__':
     # 配置日志

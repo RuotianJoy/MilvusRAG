@@ -5,9 +5,20 @@ import json
 import os
 import uuid
 import numpy as np
+
+# 禁用PyTorch MPS加速，避免在Apple Silicon上的图形处理器错误
+os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1" 
+os.environ["PYTORCH_MPS_HIGH_WATERMARK_RATIO"] = "0.0"
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
+
 from pymilvus import connections, Collection, FieldSchema, CollectionSchema, DataType, utility
 from sentence_transformers import SentenceTransformer
+import torch
 import configparser
+
+# 强制PyTorch使用CPU而非MPS
+if hasattr(torch, "set_default_device"):
+    torch.set_default_device("cpu")
 
 class USNews2025SubjectDataImporter:
     def __init__(self, processed_data_path=None):
@@ -35,7 +46,7 @@ class USNews2025SubjectDataImporter:
         self.text_vector_dim = 384  # BERT向量维度
         
         # 初始化文本嵌入模型
-        self.embedding_model = SentenceTransformer('all-MiniLM-L6-v2')
+        self.embedding_model = SentenceTransformer('all-MiniLM-L6-v2', device="cpu")
         
         # 加载处理后的数据
         self.processed_data_path = processed_data_path

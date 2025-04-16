@@ -103,7 +103,7 @@ class MilvusImporter:
         """
         创建大学基础信息集合
         """
-        collection_name = "university_base"
+        collection_name = "usnews2025_university_base"
         
         # 检查集合是否已存在
         if utility.has_collection(collection_name):
@@ -142,7 +142,7 @@ class MilvusImporter:
         """
         创建大学概述集合
         """
-        collection_name = "university_summary"
+        collection_name = "usnews2025_university_summary"
         
         # 检查集合是否已存在
         if utility.has_collection(collection_name):
@@ -179,7 +179,7 @@ class MilvusImporter:
         """
         创建大学统计数据集合
         """
-        collection_name = "university_statistics"
+        collection_name = "usnews2025_university_statistics"
         
         # 检查集合是否已存在
         if utility.has_collection(collection_name):
@@ -226,7 +226,7 @@ class MilvusImporter:
         """
         创建大学学科排名集合
         """
-        collection_name = "university_subjects"
+        collection_name = "usnews2025_university_subjects"
         
         # 检查集合是否已存在
         if utility.has_collection(collection_name):
@@ -263,7 +263,7 @@ class MilvusImporter:
         """
         创建大学全球指标集合
         """
-        collection_name = "university_indicators"
+        collection_name = "usnews2025_university_indicators"
         
         # 检查集合是否已存在
         if utility.has_collection(collection_name):
@@ -582,11 +582,11 @@ class MilvusImporter:
             print("\n正在验证数据导入结果...")
             
             collections = {
-                "university_base": base_collection,
-                "university_summary": summary_collection,
-                "university_statistics": statistics_collection,
-                "university_subjects": subjects_collection,
-                "university_indicators": indicators_collection
+                "usnews2025_university_base": base_collection,
+                "usnews2025_university_summary": summary_collection,
+                "usnews2025_university_statistics": statistics_collection,
+                "usnews2025_university_subjects": subjects_collection,
+                "usnews2025_university_indicators": indicators_collection
             }
             
             # 加载并验证所有集合

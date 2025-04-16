@@ -31,7 +31,7 @@ logging.basicConfig(
 load_dotenv()
 
 # 定义常量
-COLLECTION_NAME = f"us_colleges_{int(time.time())}"  # 使用时间戳创建唯一名称
+COLLECTION_NAME = f"us_colleges_WIKI"  # 使用时间戳创建唯一名称
 VECTOR_DIM = 128  # 初始设置，将根据实际数据调整
 NUM_CHUNKS = 100  # 数据分块数量
 MAX_WORKERS = os.cpu_count() or 2  # 设置并行处理的最大工作线程数

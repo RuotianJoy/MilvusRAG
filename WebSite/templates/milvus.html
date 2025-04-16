@@ -239,7 +239,7 @@
                                     <div class="mb-3 d-flex justify-content-between align-items-center">
                                         <div>
                                             <h6>数据样本</h6>
-                                            <p class="text-muted">注意：向量字段不会显示</p>
+                                            <p class="text-muted">注意：向量字段显示其维度信息而不是具体内容</p>
                                         </div>
                                         <div class="d-flex align-items-center">
                                             <span class="me-2">每页行数：</span>
@@ -295,8 +295,6 @@
         {% endif %}
     </div>
 
-
-
     <!-- JavaScript依赖 -->
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.bundle.min.js"></script>
     <script>
@@ -305,6 +303,38 @@
         let currentPage = 1;
         let totalPages = 1;
         let pageSize = 10;
+        let currentCollectionFields = []; // 存储当前集合的字段信息
+
+        // 判断是否为向量字段
+        function isVectorField(fieldName) {
+            if (!currentCollectionFields || currentCollectionFields.length === 0) {
+                return false;
+            }
+            
+            const field = currentCollectionFields.find(f => f.name === fieldName);
+            return field && (field.type.includes('VECTOR') || (field.params && field.params.dim));
+        }
+
+        // 获取向量字段的维度信息
+        function getVectorFieldInfo(fieldName) {
+            if (!currentCollectionFields || currentCollectionFields.length === 0) {
+                return null;
+            }
+            
+            const field = currentCollectionFields.find(f => f.name === fieldName);
+            if (!field) {
+                return null;
+            }
+            
+            if (field.type.includes('VECTOR') && field.params && field.params.dim) {
+                return {
+                    dim: field.params.dim,
+                    type: field.type
+                };
+            }
+            
+            return null;
+        }
 
         // 加载集合信息
         function loadCollectionInfo(collectionName) {
@@ -340,6 +370,9 @@
                     // 更新字段表
                     const fieldsTable = document.getElementById('fieldsTable').getElementsByTagName('tbody')[0];
                     fieldsTable.innerHTML = '';
+                    
+                    // 保存字段信息到全局变量
+                    currentCollectionFields = data.fields;
                     
                     data.fields.forEach(field => {
                         const row = fieldsTable.insertRow();
@@ -491,12 +524,32 @@
                             const cell = row.insertCell();
                             let value = item[field];
                             
-                            // 截断过长的值
-                            if (typeof value === 'string' && value.length > 100) {
-                                value = value.substring(0, 100) + '...';
+                            // 检查是否为向量字段
+                            if (field.endsWith('_vector') || isVectorField(field)) {
+                                // 如果是向量字段，显示其维度信息
+                                const vectorInfo = getVectorFieldInfo(field);
+                                if (vectorInfo) {
+                                    cell.innerHTML = `<span class="badge bg-info">向量维度: ${vectorInfo.dim}</span>`;
+                                } else if (Array.isArray(value)) {
+                                    cell.innerHTML = `<span class="badge bg-info">向量维度: ${value.length}</span>`;
+                                } else {
+                                    cell.innerHTML = `<span class="badge bg-secondary">向量字段</span>`;
+                                }
+                            } else {
+                                // 截断过长的值
+                                if (typeof value === 'string' && value.length > 100) {
+                                    value = value.substring(0, 100) + '...';
+                                } else if (typeof value === 'object' && value !== null) {
+                                    // 处理对象和数组
+                                    let strValue = JSON.stringify(value);
+                                    if (strValue.length > 100) {
+                                        strValue = strValue.substring(0, 100) + '...';
+                                    }
+                                    value = strValue;
+                                }
+                                
+                                cell.textContent = value;
                             }
-                            
-                            cell.textContent = value;
                         });
                     });
                 })

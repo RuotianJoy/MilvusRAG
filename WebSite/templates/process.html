@@ -89,6 +89,31 @@
         .alert {
             margin-bottom: 20px;
         }
+        .source-tag {
+            display: inline-block;
+            padding: 0.25rem 0.5rem;
+            font-size: 0.8rem;
+            border-radius: 3px;
+            background-color: #e7f5ff;
+            color: #0d6efd;
+            margin-right: 0.5rem;
+            margin-bottom: 0.5rem;
+        }
+        .data-source-report {
+            margin-bottom: 2rem;
+        }
+        .source-bar {
+            background-color: #e7f5ff;
+            border-radius: 5px;
+            padding: 0.5rem;
+            margin-bottom: 0.5rem;
+        }
+        .source-detail {
+            background-color: #f8f9fa;
+            border-radius: 5px;
+            padding: 0.75rem;
+            margin-top: 0.5rem;
+        }
     </style>
 </head>
 <body>
@@ -231,6 +256,25 @@
                 <!-- 结果区域 -->
                 <div id="resultsArea" class="results-container">
                     <h3 class="mb-4"><i class="bi bi-clipboard2-check"></i> 测试结果摘要</h3>
+                    
+                    <!-- 数据来源报告 -->
+                    <div class="card mb-4 data-source-report" id="sourceStatsCard" style="display: none;">
+                        <div class="card-header">
+                            <h5 class="mb-0"><i class="bi bi-pie-chart-fill"></i> 数据来源统计报告</h5>
+                        </div>
+                        <div class="card-body">
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <canvas id="sourceChart" width="400" height="300"></canvas>
+                                </div>
+                                <div class="col-md-6" id="sourceStatsList">
+                                    <h6 class="mb-3">数据来源使用频率</h6>
+                                    <!-- 这里将由JavaScript动态填充 -->
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
                     <div id="resultsSummary"></div>
                 </div>
             </div>
@@ -258,6 +302,347 @@
 
             const sessionId = "{{ session_id }}";
             
+            // 添加一个全局变量存储SSE事件源
+            let eventSource = null;
+            
+            // 更新单个问题的显示内容
+            function updateQuestionItem(index, result) {
+                const questionItem = document.getElementById(`question-${index}`);
+                if (!questionItem) {
+                    console.warn(`找不到问题元素: question-${index}`);
+                    return;
+                }
+                
+                const statusElement = questionItem.querySelector('.test-status');
+                const detailsElement = questionItem.querySelector('.test-details');
+                
+                // 更新状态
+                questionItem.classList.add('completed');
+                statusElement.innerHTML = '<span class="badge bg-success">已完成</span>';
+                
+                // 添加指标中英文映射
+                const metricNameMap = {
+                    'rouge_1': 'ROUGE-1（词级匹配）',
+                    'rouge_2': 'ROUGE-2（二元组匹配）',
+                    'rouge_l': 'ROUGE-L（最长公共子序列）',
+                    'keyword_match': '关键词匹配率',
+                    'precision_1': '精准率（词级）',
+                    'recall_1': '召回率（词级）',
+                    'precision_l': '精准率（序列级）',
+                    'recall_l': '召回率（序列级）',
+                    'keyword_precision': '关键词精准率',
+                    'keyword_recall': '关键词召回率'
+                };
+                
+                // 安全处理可能导致Unicode转义问题的字符
+                let detailsHTML = '';
+                
+                // 检查是否为多模型模式
+                const isMultiModel = result.hasOwnProperty('multi_model') && result.multi_model;
+                
+                // 显示数据来源标签
+                if (result.sources && result.sources.length > 0) {
+                    detailsHTML += `<div class="mb-3">
+                        <h6 class="mb-2"><i class="bi bi-diagram-3"></i> 数据来源:</h6>
+                        <div>`;
+                    
+                    result.sources.forEach(source => {
+                        if (source && source.trim()) {
+                            detailsHTML += `<span class="source-tag">${source}</span>`;
+                        }
+                    });
+                    
+                    detailsHTML += `</div></div>`;
+                }
+                
+                // 显示上下文
+                if (result.context) {
+                    detailsHTML += `<div class="mb-3">
+                        <button class="btn btn-sm btn-outline-secondary mb-2" type="button" 
+                                data-bs-toggle="collapse" data-bs-target="#context-${index}">
+                            <i class="bi bi-chevron-down"></i> 显示检索内容
+                        </button>
+                        <div class="collapse" id="context-${index}">
+                            <div class="source-detail">
+                                <pre style="white-space: pre-wrap; font-size: 0.9rem;">${result.context}</pre>
+                            </div>
+                        </div>
+                    </div>`;
+                }
+                
+                if (isMultiModel) {
+                    // 多模型结果展示
+                    detailsHTML += `<div class="mb-3"><strong>参考答案:</strong><p>${result.reference}</p></div>`;
+                    
+                    // 为每个模型创建标签页
+                    detailsHTML += `
+                        <ul class="nav nav-tabs" id="modelTabs-${index}" role="tablist">
+                    `;
+                    
+                    // 创建标签页头部
+                    let firstTab = true;
+                    for (const [modelName, answer] of Object.entries(result.model_answers)) {
+                        const modelId = modelName.replace(/[^a-zA-Z0-9]/g, '');
+                        detailsHTML += `
+                            <li class="nav-item" role="presentation">
+                                <button class="nav-link ${firstTab ? 'active' : ''}" 
+                                        id="${modelId}-tab-${index}" 
+                                        data-bs-toggle="tab" 
+                                        data-bs-target="#${modelId}-content-${index}" 
+                                        type="button" 
+                                        role="tab">${modelName}</button>
+                            </li>
+                        `;
+                        firstTab = false;
+                    }
+                    detailsHTML += `</ul>`;
+                    
+                    // 创建标签页内容
+                    detailsHTML += `<div class="tab-content mt-3" id="modelTabsContent-${index}">`;
+                    
+                    firstTab = true;
+                    for (const [modelName, answer] of Object.entries(result.model_answers)) {
+                        const modelId = modelName.replace(/[^a-zA-Z0-9]/g, '');
+                        const safeAnswer = answer.replace(/[\u0000-\u0019]/g, '');
+                        const metrics = result.model_metrics[modelName];
+                        
+                        detailsHTML += `
+                            <div class="tab-pane fade ${firstTab ? 'show active' : ''}" 
+                                 id="${modelId}-content-${index}" 
+                                 role="tabpanel">
+                                
+                                <div class="mb-2">
+                                    <strong>${modelName} 回答:</strong>
+                                    <p>${safeAnswer}</p>
+                                </div>
+                                
+                                <div class="mb-2">
+                                    <strong>检索时间:</strong> ${result.retrieval_time.toFixed(2)}秒
+                                </div>
+                                
+                                <div>
+                                    <strong>评估指标:</strong>
+                                    <div class="row">
+                                        <div class="col-md-6">
+                                            <div class="metric-card">
+                                                <div class="d-flex justify-content-between">
+                                                    <span>${metricNameMap['rouge_1'] || 'ROUGE-1'}:</span>
+                                                    <span>${metrics.rouge_1.toFixed(4)}</span>
+                                                </div>
+                                                <div class="progress">
+                                                    <div class="progress-bar bg-info" role="progressbar" style="width: ${metrics.rouge_1 * 100}%"></div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="col-md-6">
+                                            <div class="metric-card">
+                                                <div class="d-flex justify-content-between">
+                                                    <span>${metricNameMap['rouge_l'] || 'ROUGE-L'}:</span>
+                                                    <span>${metrics.rouge_l.toFixed(4)}</span>
+                                                </div>
+                                                <div class="progress">
+                                                    <div class="progress-bar bg-success" role="progressbar" style="width: ${metrics.rouge_l * 100}%"></div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="col-md-6">
+                                            <div class="metric-card">
+                                                <div class="d-flex justify-content-between">
+                                                    <span>${metricNameMap['keyword_match'] || '关键词匹配'}:</span>
+                                                    <span>${metrics.keyword_match.toFixed(4)}</span>
+                                                </div>
+                                                <div class="progress">
+                                                    <div class="progress-bar bg-warning" role="progressbar" style="width: ${metrics.keyword_match * 100}%"></div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="col-md-6">
+                                            <div class="metric-card">
+                                                <div class="d-flex justify-content-between">
+                                                    <span>${metricNameMap['precision_1'] || '精确率(P-1)'}:</span>
+                                                    <span>${metrics.precision_1.toFixed(4)}</span>
+                                                </div>
+                                                <div class="progress">
+                                                    <div class="progress-bar bg-danger" role="progressbar" style="width: ${metrics.precision_1 * 100}%"></div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        `;
+                        firstTab = false;
+                    }
+                    
+                    detailsHTML += `</div>`;
+                    
+                } else {
+                    // 单一模型展示方式
+                    const safeGenerated = result.generated.replace(/[\u0000-\u0019]/g, '');
+                    
+                    detailsHTML = `
+                        <div class="mb-2">
+                            <strong>生成答案:</strong>
+                            <p>${safeGenerated}</p>
+                        </div>
+                        <div class="mb-2">
+                            <strong>检索时间:</strong> ${result.retrieval_time.toFixed(2)}秒
+                        </div>
+                        <div>
+                            <strong>评估指标:</strong>
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <div class="metric-card">
+                                        <div class="d-flex justify-content-between">
+                                            <span>${metricNameMap['rouge_1'] || 'ROUGE-1'}:</span>
+                                            <span>${result.metrics.rouge_1.toFixed(4)}</span>
+                                        </div>
+                                        <div class="progress">
+                                            <div class="progress-bar bg-info" role="progressbar" style="width: ${result.metrics.rouge_1 * 100}%"></div>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="col-md-6">
+                                    <div class="metric-card">
+                                        <div class="d-flex justify-content-between">
+                                            <span>${metricNameMap['rouge_l'] || 'ROUGE-L'}:</span>
+                                            <span>${result.metrics.rouge_l.toFixed(4)}</span>
+                                        </div>
+                                        <div class="progress">
+                                            <div class="progress-bar bg-success" role="progressbar" style="width: ${result.metrics.rouge_l * 100}%"></div>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="col-md-6">
+                                    <div class="metric-card">
+                                        <div class="d-flex justify-content-between">
+                                            <span>${metricNameMap['keyword_match'] || '关键词匹配'}:</span>
+                                            <span>${result.metrics.keyword_match.toFixed(4)}</span>
+                                        </div>
+                                        <div class="progress">
+                                            <div class="progress-bar bg-warning" role="progressbar" style="width: ${result.metrics.keyword_match * 100}%"></div>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="col-md-6">
+                                    <div class="metric-card">
+                                        <div class="d-flex justify-content-between">
+                                            <span>${metricNameMap['precision_1'] || '精确率(P-1)'}:</span>
+                                            <span>${result.metrics.precision_1.toFixed(4)}</span>
+                                        </div>
+                                        <div class="progress">
+                                            <div class="progress-bar bg-danger" role="progressbar" style="width: ${result.metrics.precision_1 * 100}%"></div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                }
+                
+                // 更新详细信息，避免不规范的转义序列
+                detailsElement.style.display = 'block';
+                detailsElement.innerHTML = detailsHTML;
+            }
+            
+            // 更新进度条显示
+            function updateProgress(current, total) {
+                const percentage = (current / total) * 100;
+                progressBar.style.width = `${percentage}%`;
+                progressText.textContent = `${current}/${total}`;
+                
+                if (current === total) {
+                    currentStatus.textContent = '测试完成';
+                } else {
+                    currentStatus.textContent = '测试中...';
+                }
+            }
+            
+            // 连接SSE事件源
+            function connectEventSource(sessionId) {
+                if (eventSource) {
+                    eventSource.close();
+                }
+                
+                eventSource = new EventSource(`/progress/${sessionId}`);
+                
+                // 处理接收到的消息
+                eventSource.onmessage = function(event) {
+                    const data = JSON.parse(event.data);
+                    console.log("收到SSE更新:", data);
+                    
+                    // 更新进度显示
+                    updateProgress(data.current, data.total);
+                    
+                    // 显示已完成问题的测评结果
+                    if (data.results && Array.isArray(data.results)) {
+                        data.results.forEach((result, idx) => {
+                            updateQuestionItem(idx, result);
+                        });
+                    }
+                    
+                    // 如果完成了全部问题，显示下载链接
+                    if (data.completed) {
+                        console.log("测试完成，关闭SSE连接");
+                        if (eventSource) {
+                            eventSource.close();
+                            eventSource = null;
+                        }
+                        
+                        // 更新状态显示
+                        currentStatus.textContent = '正在获取完整结果...';
+                        
+                        // 请求完整测试结果和下载链接（增加重试逻辑）
+                        const getCompleteResults = (retryCount = 0) => {
+                            fetch(`/run_test?session_id=${sessionId}&get_results=true`)
+                                .then(response => {
+                                    if (!response.ok) {
+                                        throw new Error(`服务器响应错误: ${response.status}`);
+                                    }
+                                    return response.json();
+                                })
+                                .then(completeData => {
+                                    // 显示下载链接
+                                    downloadArea.style.display = 'block';
+                                    if (completeData.result_file) {
+                                        downloadLink.href = `/uploads/${completeData.result_file}`;
+                                    }
+                                    
+                                    // 显示完整结果
+                                    if (completeData.avg_scores) {
+                                        displayResults(completeData.results, completeData.avg_scores);
+                                    }
+                                    
+                                    // 更新状态显示
+                                    currentStatus.textContent = '测试完成';
+                                })
+                                .catch(error => {
+                                    console.error("获取完整结果失败:", error);
+                                    if (retryCount < 3) {  // 最多重试3次
+                                        console.log(`重试获取完整结果 (${retryCount + 1}/3)...`);
+                                        currentStatus.textContent = `获取结果重试中 (${retryCount + 1}/3)...`;
+                                        setTimeout(() => getCompleteResults(retryCount + 1), 1000);  // 1秒后重试
+                                    } else {
+                                        currentStatus.textContent = '获取完整结果失败';
+                                    }
+                                });
+                        };
+                        
+                        // 开始获取完整结果
+                        getCompleteResults();
+                    }
+                };
+                
+                // 处理错误
+                eventSource.onerror = function(error) {
+                    console.error("SSE连接错误:", error);
+                    if (eventSource) {
+                        eventSource.close();
+                        eventSource = null;
+                    }
+                };
+            }
+            
             startTestBtn.addEventListener('click', function() {
                 // 获取选择的模型
                 const selectedModels = [];
@@ -277,7 +662,26 @@
                 startTestBtn.disabled = true;
                 startTestBtn.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> 测试中...';
 
+                // 重置所有问题的状态
+                document.querySelectorAll('.test-item').forEach(function(item) {
+                    item.classList.remove('completed');
+                    const statusElement = item.querySelector('.test-status');
+                    const detailsElement = item.querySelector('.test-details');
+                    statusElement.innerHTML = '<span class="badge bg-secondary">待测试</span>';
+                    detailsElement.style.display = 'none';
+                    detailsElement.innerHTML = '';
+                });
                 
+                // 重置进度条和下载区域
+                progressBar.style.width = '0%';
+                progressText.textContent = `0/${totalQuestions}`;
+                currentStatus.textContent = '准备中...';
+                downloadArea.style.display = 'none';
+                
+                // 首先连接SSE事件源以获取实时更新
+                connectEventSource(sessionId);
+                
+                // 然后发送测试请求
                 fetch('/run_test', {
                     method: 'POST',
                     headers: {
@@ -297,41 +701,23 @@
                     return response.json();
                 })
                 .then(function(data) {
-                    // // 隐藏加载动画
-                    // spinnerContainer.style.display = 'none';
-                    // console.log("解析响应数据:", data);
-                    
-                    if (data.status === 'success') {
-                        // 更新进度条为完成
-                        progressBar.style.width = '100%';
-                        progressText.textContent = `${totalQuestions}/${totalQuestions}`;
-                        currentStatus.textContent = '测试完成';
-                        
-                        // 显示下载链接
-                        downloadArea.style.display = 'block';
-                        downloadLink.href = `/uploads/${data.result_file}`;
-                        
-                        // 显示结果
-                        displayResults(data.results, data.avg_scores);
-                    } else {
-                        // 显示错误
-                        currentStatus.textContent = '测试失败';
-                        console.error("测试失败:", data.message);
-                        alert('执行测试时出错: ' + data.message);
-                    }
+                    console.log("测试请求完成:", data);
+                    // 注意：此时实际结果已通过SSE实时更新，这里不需要重复处理
                     
                     // 重置按钮状态
                     startTestBtn.disabled = false;
                     startTestBtn.innerHTML = '<i class="bi bi-play-fill"></i> 重新测试';
                 })
                 .catch(function(error) {
-                    // // 隐藏加载动画
-                    // spinnerContainer.style.display = 'none';
-                    
                     // 显示错误
                     currentStatus.textContent = '测试失败';
                     console.error('Error:', error);
-                    alert('执行测试时出错: ' + error.message);
+                    
+                    // 关闭SSE连接
+                    if (eventSource) {
+                        eventSource.close();
+                        eventSource = null;
+                    }
                     
                     // 重置按钮状态
                     startTestBtn.disabled = false;
@@ -357,6 +743,23 @@
                 // 检查是否为多模型模式 - 只在这里声明一次
                 const isMultiModel = results.length > 0 && results[0].hasOwnProperty('multi_model') && results[0].multi_model;
 
+                // 收集数据来源统计
+                const sourceStats = {};
+                results.forEach(result => {
+                    if (result.sources && Array.isArray(result.sources)) {
+                        result.sources.forEach(source => {
+                            if (source) {
+                                sourceStats[source] = (sourceStats[source] || 0) + 1;
+                            }
+                        });
+                    }
+                });
+                
+                // 显示数据来源统计报告（如果有数据来源）
+                if (Object.keys(sourceStats).length > 0) {
+                    updateSourceStatsReport(sourceStats, results.length);
+                }
+
                 // 更新各问题的详细结果
                 results.forEach(function(result, index) {
                     const questionItem = document.getElementById(`question-${index}`);
@@ -374,6 +777,36 @@
                     
                     // 安全处理可能导致Unicode转义问题的字符
                     let detailsHTML = '';
+                    
+                    // 显示数据来源标签
+                    if (result.sources && result.sources.length > 0) {
+                        detailsHTML += `<div class="mb-3">
+                            <h6 class="mb-2"><i class="bi bi-diagram-3"></i> 数据来源:</h6>
+                            <div>`;
+                        
+                        result.sources.forEach(source => {
+                            if (source && source.trim()) {
+                                detailsHTML += `<span class="source-tag">${source}</span>`;
+                            }
+                        });
+                        
+                        detailsHTML += `</div></div>`;
+                    }
+                    
+                    // 显示上下文
+                    if (result.context) {
+                        detailsHTML += `<div class="mb-3">
+                            <button class="btn btn-sm btn-outline-secondary mb-2" type="button" 
+                                    data-bs-toggle="collapse" data-bs-target="#context-${index}">
+                                <i class="bi bi-chevron-down"></i> 显示检索内容
+                            </button>
+                            <div class="collapse" id="context-${index}">
+                                <div class="source-detail">
+                                    <pre style="white-space: pre-wrap; font-size: 0.9rem;">${result.context}</pre>
+                                </div>
+                            </div>
+                        </div>`;
+                    }
                     
                     if (isMultiModel) {
                         // 多模型结果展示
@@ -396,8 +829,8 @@
                                             data-bs-target="#${modelId}-content-${index}" 
                                             type="button" 
                                             role="tab">${modelName}</button>
-                                </li>
-                            `;
+                            </li>
+                        `;
                             firstTab = false;
                         }
                         detailsHTML += `</ul>`;
@@ -925,6 +1358,91 @@
                         }
                     });
                 }
+            }
+            
+            // 添加更新数据来源统计报告的函数
+            function updateSourceStatsReport(sourceStats, totalQuestions) {
+                const sourceStatsCard = document.getElementById('sourceStatsCard');
+                const sourceStatsList = document.getElementById('sourceStatsList');
+                
+                // 显示报告卡片
+                sourceStatsCard.style.display = 'block';
+                
+                // 清空列表
+                sourceStatsList.innerHTML = '<h6 class="mb-3">数据来源使用频率</h6>';
+                
+                // 对数据来源按使用频率排序
+                const sortedSources = Object.entries(sourceStats)
+                    .sort((a, b) => b[1] - a[1])
+                    .map(entry => ({source: entry[0], count: entry[1]}));
+                
+                // 添加数据来源条目
+                sortedSources.forEach(item => {
+                    const percentage = Math.round((item.count / totalQuestions) * 100);
+                    sourceStatsList.innerHTML += `
+                        <div class="source-bar">
+                            <div class="d-flex justify-content-between align-items-center">
+                                <div class="source-name">${item.source}</div>
+                                <div class="badge bg-primary">${item.count}次</div>
+                            </div>
+                            <div class="progress mt-2">
+                                <div class="progress-bar bg-info" role="progressbar" 
+                                    style="width: ${percentage}%" 
+                                    aria-valuenow="${item.count}" aria-valuemin="0" 
+                                    aria-valuemax="${totalQuestions}">
+                                    ${percentage}%
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                });
+                
+                // 绘制饼图
+                const ctx = document.getElementById('sourceChart').getContext('2d');
+                
+                // 生成随机颜色
+                const backgroundColors = sortedSources.map((_, i) => {
+                    return `hsl(${i * 360 / sortedSources.length}, 70%, 60%)`;
+                });
+                
+                new Chart(ctx, {
+                    type: 'doughnut',
+                    data: {
+                        labels: sortedSources.map(item => item.source),
+                        datasets: [{
+                            data: sortedSources.map(item => item.count),
+                            backgroundColor: backgroundColors,
+                            borderWidth: 1
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        plugins: {
+                            legend: {
+                                position: 'bottom',
+                                labels: {
+                                    boxWidth: 15,
+                                    padding: 10
+                                }
+                            },
+                            title: {
+                                display: true,
+                                text: '数据来源分布'
+                            },
+                            tooltip: {
+                                callbacks: {
+                                    label: function(context) {
+                                        const label = context.label || '';
+                                        const value = context.raw;
+                                        const total = context.dataset.data.reduce((acc, val) => acc + val, 0);
+                                        const percentage = Math.round((value / total) * 100);
+                                        return `${label}: ${value}次 (${percentage}%)`;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                });
             }
         });
     </script>

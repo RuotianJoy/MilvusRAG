@@ -112,7 +112,7 @@ def create_basic_info_collection():
     return collection
 
 def create_subjects_collection():
-    """创建学科向量集合"""
+    """创建学科向量集合，添加更丰富的学科相关字段"""
     collection_name = f"{_COLLECTION_PREFIX}_subjects"
     
     # 检查集合是否已存在，如果存在则删除
@@ -120,12 +120,19 @@ def create_subjects_collection():
         utility.drop_collection(collection_name)
         print(f"已删除现有集合: {collection_name}")
     
-    # 定义集合字段
+    # 定义集合字段 - 添加更丰富的学科相关字段
     fields = [
         FieldSchema(name="id", dtype=DataType.INT64, is_primary=True),
         FieldSchema(name="name", dtype=DataType.VARCHAR, max_length=256),
         FieldSchema(name="rank", dtype=DataType.VARCHAR, max_length=50),
         FieldSchema(name="location", dtype=DataType.VARCHAR, max_length=128),
+        # 添加更丰富的学科相关字段
+        FieldSchema(name="subjects", dtype=DataType.VARCHAR, max_length=4096),  # 存储学科列表JSON
+        FieldSchema(name="subjects_count", dtype=DataType.INT32),  # 学科数量
+        FieldSchema(name="top_subjects", dtype=DataType.VARCHAR, max_length=512),  # 前几个主要学科
+        FieldSchema(name="has_computer_science", dtype=DataType.BOOL),  # 是否有计算机科学
+        FieldSchema(name="has_engineering", dtype=DataType.BOOL),  # 是否有工程类学科
+        FieldSchema(name="has_medicine", dtype=DataType.BOOL),  # 是否有医学类学科
         FieldSchema(name="subjects_vector", dtype=DataType.FLOAT_VECTOR, dim=768)
     ]
     
@@ -144,7 +151,7 @@ def create_subjects_collection():
     index_params = {
         "metric_type": "COSINE",
         "index_type": "HNSW",
-        "params": {"M": 16, "efConstruction": 200}
+        "params": {"M": 16, "efConstruction": 400}  # 提高efConstruction值，增强搜索质量
     }
     collection.create_index(field_name="subjects_vector", index_params=index_params)
     print(f"已创建 {collection_name} 索引")
@@ -167,8 +174,14 @@ def create_metrics_collection():
         FieldSchema(name="rank", dtype=DataType.VARCHAR, max_length=50),
         FieldSchema(name="location", dtype=DataType.VARCHAR, max_length=128),
         FieldSchema(name="overall_score", dtype=DataType.FLOAT),
+        FieldSchema(name="teaching_score", dtype=DataType.FLOAT),
+        FieldSchema(name="research_score", dtype=DataType.FLOAT),
+        FieldSchema(name="citations_score", dtype=DataType.FLOAT),
+        FieldSchema(name="industry_income_score", dtype=DataType.FLOAT),
+        FieldSchema(name="international_outlook_score", dtype=DataType.FLOAT),
         FieldSchema(name="student_staff_ratio", dtype=DataType.FLOAT),
         FieldSchema(name="pc_intl_students", dtype=DataType.FLOAT),
+        FieldSchema(name="number_students", dtype=DataType.INT32),  # 添加学生数量字段
         FieldSchema(name="metrics_vector", dtype=DataType.FLOAT_VECTOR, dim=10)
     ]
     
@@ -183,11 +196,11 @@ def create_metrics_collection():
     collection.create_partition(_PARTITION_NAME)
     print(f"已创建分区 {_PARTITION_NAME}")
     
-    # 创建索引
+    # 创建索引 - 优化索引参数
     index_params = {
         "metric_type": "L2",
         "index_type": "HNSW",
-        "params": {"M": 16, "efConstruction": 200}
+        "params": {"M": 16, "efConstruction": 400}  # 提高efConstruction值
     }
     collection.create_index(field_name="metrics_vector", index_params=index_params)
     print(f"已创建 {collection_name} 索引")
@@ -249,312 +262,489 @@ def import_basic_info_data(collection, data):
     if not collection:
         return False
     
-    try:
-        print(f"正在导入基本信息向量数据，共 {len(data)} 条记录")
-        
-        # 准备待插入的数据
-        ids = []
-        names = []
-        ranks = []
-        locations = []
-        overall_scores = []
-        teaching_scores = []
-        research_scores = []
-        citations_scores = []
-        industry_income_scores = []
-        international_outlook_scores = []
-        basic_info_vectors = []
-        
-        # 处理每条记录
-        batch_size = 1000  # 每批处理的数量
-        total_batches = (len(data) + batch_size - 1) // batch_size
-        
-        for batch_idx in range(total_batches):
-            start_idx = batch_idx * batch_size
-            end_idx = min((batch_idx + 1) * batch_size, len(data))
-            batch_data = data[start_idx:end_idx]
-            
-            # 清空批处理列表
-            ids.clear()
-            names.clear()
-            ranks.clear()
-            locations.clear()
-            overall_scores.clear()
-            teaching_scores.clear()
-            research_scores.clear()
-            citations_scores.clear()
-            industry_income_scores.clear()
-            international_outlook_scores.clear()
-            basic_info_vectors.clear()
-            
-            # 填充数据
-            for item in batch_data:
-                ids.append(int(item.get("id", 0)))
-                names.append(item.get("name", "Unknown"))
-                ranks.append(item.get("rank", "未知"))
-                locations.append(item.get("location", "Unknown"))
-                overall_scores.append(float(item.get("overall_score", 0)))
-                teaching_scores.append(float(item.get("teaching_score", 0)))
-                research_scores.append(float(item.get("research_score", 0)))
-                citations_scores.append(float(item.get("citations_score", 0)))
-                industry_income_scores.append(float(item.get("industry_income_score", 0)))
-                international_outlook_scores.append(float(item.get("international_outlook_score", 0)))
-                basic_info_vectors.append(item.get("basic_info_vector", [0] * 768))
-            
-            # 执行批量插入
-            insert_data = [
-                ids,
-                names,
-                ranks,
-                locations,
-                overall_scores,
-                teaching_scores,
-                research_scores,
-                citations_scores,
-                industry_income_scores,
-                international_outlook_scores,
-                basic_info_vectors
-            ]
-            
-            collection.insert(insert_data, partition_name=_PARTITION_NAME)
-            print(f"已导入基本信息向量批次 {batch_idx + 1}/{total_batches}，记录 {start_idx + 1} - {end_idx}")
-        
-        # 刷新集合
-        collection.flush()
-        print(f"基本信息向量导入完成，共插入 {collection.num_entities} 条记录")
-        
-        return True
-    except Exception as e:
-        print(f"导入基本信息向量数据时出错: {e}")
-        return False
-
-def import_subjects_data(collection, data):
-    """导入学科向量数据"""
-    if not collection:
-        return False
+    # 添加重试机制
+    max_retries = 3
+    retry_count = 0
     
-    try:
-        print(f"正在导入学科向量数据，共 {len(data)} 条记录")
-        
-        # 准备待插入的数据
-        ids = []
-        names = []
-        ranks = []
-        locations = []
-        subjects_vectors = []
-        
-        # 处理每条记录
-        batch_size = 1000  # 每批处理的数量
-        total_batches = (len(data) + batch_size - 1) // batch_size
-        
-        for batch_idx in range(total_batches):
-            start_idx = batch_idx * batch_size
-            end_idx = min((batch_idx + 1) * batch_size, len(data))
-            batch_data = data[start_idx:end_idx]
+    while retry_count < max_retries:
+        try:
+            print(f"正在导入基本信息向量数据，共 {len(data)} 条记录")
             
-            # 清空批处理列表
-            ids.clear()
-            names.clear()
-            ranks.clear()
-            locations.clear()
-            subjects_vectors.clear()
+            # 准备待插入的数据
+            ids = []
+            names = []
+            ranks = []
+            locations = []
+            overall_scores = []
+            teaching_scores = []
+            research_scores = []
+            citations_scores = []
+            industry_income_scores = []
+            international_outlook_scores = []
+            basic_info_vectors = []
             
-            # 填充数据
-            for item in batch_data:
-                ids.append(int(item.get("id", 0)))
-                names.append(item.get("name", "Unknown"))
-                ranks.append(item.get("rank", "未知"))
-                locations.append(item.get("location", "Unknown"))
-                subjects_vectors.append(item.get("subjects_vector", [0] * 768))
+            # 处理每条记录
+            batch_size = 1000  # 每批处理的数量
+            total_batches = (len(data) + batch_size - 1) // batch_size
             
-            # 执行批量插入
-            insert_data = [
-                ids,
-                names,
-                ranks,
-                locations,
-                subjects_vectors
-            ]
+            for batch_idx in range(total_batches):
+                start_idx = batch_idx * batch_size
+                end_idx = min((batch_idx + 1) * batch_size, len(data))
+                batch_data = data[start_idx:end_idx]
+                
+                # 清空批处理列表
+                ids.clear()
+                names.clear()
+                ranks.clear()
+                locations.clear()
+                overall_scores.clear()
+                teaching_scores.clear()
+                research_scores.clear()
+                citations_scores.clear()
+                industry_income_scores.clear()
+                international_outlook_scores.clear()
+                basic_info_vectors.clear()
+                
+                # 填充数据
+                for item in batch_data:
+                    ids.append(int(item.get("id", 0)))
+                    names.append(item.get("name", "Unknown"))
+                    ranks.append(item.get("rank", "未知"))
+                    locations.append(item.get("location", "Unknown"))
+                    overall_scores.append(float(item.get("overall_score", 0)))
+                    teaching_scores.append(float(item.get("teaching_score", 0)))
+                    research_scores.append(float(item.get("research_score", 0)))
+                    citations_scores.append(float(item.get("citations_score", 0)))
+                    industry_income_scores.append(float(item.get("industry_income_score", 0)))
+                    international_outlook_scores.append(float(item.get("international_outlook_score", 0)))
+                    basic_info_vectors.append(item.get("basic_info_vector", [0] * 768))
+                
+                # 执行批量插入
+                insert_data = [
+                    ids,
+                    names,
+                    ranks,
+                    locations,
+                    overall_scores,
+                    teaching_scores,
+                    research_scores,
+                    citations_scores,
+                    industry_income_scores,
+                    international_outlook_scores,
+                    basic_info_vectors
+                ]
+                
+                collection.insert(insert_data, partition_name=_PARTITION_NAME)
+                print(f"已导入基本信息向量批次 {batch_idx + 1}/{total_batches}，记录 {start_idx + 1} - {end_idx}")
             
-            collection.insert(insert_data, partition_name=_PARTITION_NAME)
-            print(f"已导入学科向量批次 {batch_idx + 1}/{total_batches}，记录 {start_idx + 1} - {end_idx}")
-        
-        # 刷新集合
-        collection.flush()
-        print(f"学科向量导入完成，共插入 {collection.num_entities} 条记录")
-        
-        return True
-    except Exception as e:
-        print(f"导入学科向量数据时出错: {e}")
-        return False
+            # 刷新集合
+            collection.flush()
+            print(f"基本信息向量导入完成，共插入 {collection.num_entities} 条记录")
+            
+            return True
+        except Exception as e:
+            retry_count += 1
+            print(f"导入基本信息向量数据失败，尝试重试 ({retry_count}/{max_retries}): {e}")
+            import traceback
+            traceback.print_exc()
+            import time
+            time.sleep(2)  # 延时后重试
+    
+    print("导入基本信息向量数据失败，已达到最大重试次数")
+    return False
 
 def import_metrics_data(collection, data):
     """导入评分指标向量数据"""
     if not collection:
         return False
     
-    try:
-        print(f"正在导入评分指标向量数据，共 {len(data)} 条记录")
-        
-        # 准备待插入的数据
-        ids = []
-        names = []
-        ranks = []
-        locations = []
-        overall_scores = []
-        student_staff_ratios = []
-        pc_intl_students = []
-        metrics_vectors = []
-        
-        # 处理每条记录
-        batch_size = 1000  # 每批处理的数量
-        total_batches = (len(data) + batch_size - 1) // batch_size
-        
-        for batch_idx in range(total_batches):
-            start_idx = batch_idx * batch_size
-            end_idx = min((batch_idx + 1) * batch_size, len(data))
-            batch_data = data[start_idx:end_idx]
+    # 添加重试机制
+    max_retries = 3
+    retry_count = 0
+    
+    while retry_count < max_retries:
+        try:
+            print(f"正在导入评分指标向量数据，共 {len(data)} 条记录")
             
-            # 清空批处理列表
-            ids.clear()
-            names.clear()
-            ranks.clear()
-            locations.clear()
-            overall_scores.clear()
-            student_staff_ratios.clear()
-            pc_intl_students.clear()
-            metrics_vectors.clear()
+            # 准备待插入的数据
+            ids = []
+            names = []
+            ranks = []
+            locations = []
+            overall_scores = []
+            teaching_scores = []  # 添加教学评分
+            research_scores = []  # 添加研究评分
+            citations_scores = [] # 添加引用评分
+            industry_income_scores = [] # 添加产业收入评分
+            international_outlook_scores = [] # 添加国际化评分
+            student_staff_ratios = []
+            pc_intl_students = []
+            number_students = []  # 添加学生数量
+            metrics_vectors = []
             
-            # 填充数据
-            for item in batch_data:
-                ids.append(int(item.get("id", 0)))
-                names.append(item.get("name", "Unknown"))
-                ranks.append(item.get("rank", "未知"))
-                locations.append(item.get("location", "Unknown"))
-                overall_scores.append(float(item.get("overall_score", 0)))
-                student_staff_ratios.append(float(item.get("student_staff_ratio", 0)))
-                pc_intl_students.append(float(item.get("pc_intl_students", 0)))
-                metrics_vectors.append(item.get("metrics_vector", [0] * 10))
+            # 处理每条记录
+            batch_size = 1000  # 每批处理的数量
+            total_batches = (len(data) + batch_size - 1) // batch_size
             
-            # 执行批量插入
-            insert_data = [
-                ids,
-                names,
-                ranks,
-                locations,
-                overall_scores,
-                student_staff_ratios,
-                pc_intl_students,
-                metrics_vectors
-            ]
+            for batch_idx in range(total_batches):
+                start_idx = batch_idx * batch_size
+                end_idx = min((batch_idx + 1) * batch_size, len(data))
+                batch_data = data[start_idx:end_idx]
+                
+                # 清空批处理列表
+                ids.clear()
+                names.clear()
+                ranks.clear()
+                locations.clear()
+                overall_scores.clear()
+                teaching_scores.clear()
+                research_scores.clear()
+                citations_scores.clear()
+                industry_income_scores.clear()
+                international_outlook_scores.clear()
+                student_staff_ratios.clear()
+                pc_intl_students.clear()
+                number_students.clear()
+                metrics_vectors.clear()
+                
+                # 填充数据
+                for item in batch_data:
+                    ids.append(int(item.get("id", 0)))
+                    names.append(item.get("name", "Unknown"))
+                    ranks.append(item.get("rank", "未知"))
+                    locations.append(item.get("location", "Unknown"))
+                    overall_scores.append(float(item.get("overall_score", 0)))
+                    teaching_scores.append(float(item.get("teaching_score", 0)))
+                    research_scores.append(float(item.get("research_score", 0)))
+                    citations_scores.append(float(item.get("citations_score", 0)))
+                    industry_income_scores.append(float(item.get("industry_income_score", 0)))
+                    international_outlook_scores.append(float(item.get("international_outlook_score", 0)))
+                    student_staff_ratios.append(float(item.get("student_staff_ratio", 0)))
+                    pc_intl_students.append(float(item.get("pc_intl_students", 0)))
+                    # 处理学生数量，可能是字符串格式
+                    try:
+                        num_students = item.get("number_students", 0)
+                        if isinstance(num_students, str):
+                            # 移除非数字字符
+                            import re
+                            num_students = re.sub(r'[^\d]', '', num_students)
+                            if num_students:
+                                num_students = int(num_students)
+                            else:
+                                num_students = 0
+                        number_students.append(int(num_students))
+                    except:
+                        number_students.append(0)
+                    metrics_vectors.append(item.get("metrics_vector", [0] * 10))
+                
+                # 执行批量插入
+                insert_data = [
+                    ids,
+                    names,
+                    ranks,
+                    locations,
+                    overall_scores,
+                    teaching_scores,
+                    research_scores,
+                    citations_scores,
+                    industry_income_scores,
+                    international_outlook_scores,
+                    student_staff_ratios,
+                    pc_intl_students,
+                    number_students,
+                    metrics_vectors
+                ]
+                
+                collection.insert(insert_data, partition_name=_PARTITION_NAME)
+                print(f"已导入评分指标向量批次 {batch_idx + 1}/{total_batches}，记录 {start_idx + 1} - {end_idx}")
             
-            collection.insert(insert_data, partition_name=_PARTITION_NAME)
-            print(f"已导入评分指标向量批次 {batch_idx + 1}/{total_batches}，记录 {start_idx + 1} - {end_idx}")
-        
-        # 刷新集合
-        collection.flush()
-        print(f"评分指标向量导入完成，共插入 {collection.num_entities} 条记录")
-        
-        return True
-    except Exception as e:
-        print(f"导入评分指标向量数据时出错: {e}")
-        return False
+            # 刷新集合
+            collection.flush()
+            print(f"评分指标向量导入完成，共插入 {collection.num_entities} 条记录")
+            
+            return True
+        except Exception as e:
+            retry_count += 1
+            print(f"导入评分指标向量数据失败，尝试重试 ({retry_count}/{max_retries}): {e}")
+            import traceback
+            traceback.print_exc()
+            import time
+            time.sleep(2)  # 延时后重试
+    
+    print("导入评分指标向量数据失败，已达到最大重试次数")
+    return False
 
 def import_meta_data(collection, data):
     """导入元数据"""
     if not collection:
         return False
     
-    try:
-        print(f"正在导入元数据，共 {len(data)} 条记录")
-        
-        # 准备待插入的数据
-        ids = []
-        names = []
-        ranks = []
-        locations = []
-        overall_scores = []
-        teaching_scores = []
-        research_scores = []
-        citations_scores = []
-        industry_income_scores = []
-        international_outlook_scores = []
-        student_staff_ratios = []
-        pc_intl_students = []
-        json_data_list = []
-        dummy_vectors = []  # 虚拟向量字段
-        
-        # 处理每条记录
-        batch_size = 1000  # 每批处理的数量
-        total_batches = (len(data) + batch_size - 1) // batch_size
-        
-        for batch_idx in range(total_batches):
-            start_idx = batch_idx * batch_size
-            end_idx = min((batch_idx + 1) * batch_size, len(data))
-            batch_data = data[start_idx:end_idx]
+    # 添加重试机制
+    max_retries = 3
+    retry_count = 0
+    
+    while retry_count < max_retries:
+        try:
+            print(f"正在导入元数据，共 {len(data)} 条记录")
             
-            # 清空批处理列表
-            ids.clear()
-            names.clear()
-            ranks.clear()
-            locations.clear()
-            overall_scores.clear()
-            teaching_scores.clear()
-            research_scores.clear()
-            citations_scores.clear()
-            industry_income_scores.clear()
-            international_outlook_scores.clear()
-            student_staff_ratios.clear()
-            pc_intl_students.clear()
-            json_data_list.clear()
-            dummy_vectors.clear()  # 清空虚拟向量列表
+            # 准备待插入的数据
+            ids = []
+            names = []
+            ranks = []
+            locations = []
+            overall_scores = []
+            teaching_scores = []
+            research_scores = []
+            citations_scores = []
+            industry_income_scores = []
+            international_outlook_scores = []
+            student_staff_ratios = []
+            pc_intl_students = []
+            json_data_list = []
+            dummy_vectors = []  # 虚拟向量字段
             
-            # 填充数据
-            for item in batch_data:
-                ids.append(int(item.get("id", 0)))
-                names.append(item.get("name", "Unknown"))
-                ranks.append(item.get("rank", "未知"))
-                locations.append(item.get("location", "Unknown"))
-                overall_scores.append(float(item.get("overall_score", 0)))
-                teaching_scores.append(float(item.get("teaching_score", 0)))
-                research_scores.append(float(item.get("research_score", 0)))
-                citations_scores.append(float(item.get("citations_score", 0)))
-                industry_income_scores.append(float(item.get("industry_income_score", 0)))
-                international_outlook_scores.append(float(item.get("international_outlook_score", 0)))
-                student_staff_ratios.append(float(item.get("student_staff_ratio", 0)))
-                pc_intl_students.append(float(item.get("pc_intl_students", 0)))
-                json_data_list.append(item.get("json_data", "{}"))
-                dummy_vectors.append([0.0, 0.0])  # 添加虚拟向量[0.0, 0.0]
+            # 处理每条记录
+            batch_size = 1000  # 每批处理的数量
+            total_batches = (len(data) + batch_size - 1) // batch_size
             
-            # 执行批量插入
-            insert_data = [
-                ids,
-                names,
-                ranks,
-                locations,
-                overall_scores,
-                teaching_scores,
-                research_scores,
-                citations_scores,
-                industry_income_scores,
-                international_outlook_scores,
-                student_staff_ratios,
-                pc_intl_students,
-                json_data_list,
-                dummy_vectors  # 添加虚拟向量数据
-            ]
+            for batch_idx in range(total_batches):
+                start_idx = batch_idx * batch_size
+                end_idx = min((batch_idx + 1) * batch_size, len(data))
+                batch_data = data[start_idx:end_idx]
+                
+                # 清空批处理列表
+                ids.clear()
+                names.clear()
+                ranks.clear()
+                locations.clear()
+                overall_scores.clear()
+                teaching_scores.clear()
+                research_scores.clear()
+                citations_scores.clear()
+                industry_income_scores.clear()
+                international_outlook_scores.clear()
+                student_staff_ratios.clear()
+                pc_intl_students.clear()
+                json_data_list.clear()
+                dummy_vectors.clear()  # 清空虚拟向量列表
+                
+                # 填充数据
+                for item in batch_data:
+                    ids.append(int(item.get("id", 0)))
+                    names.append(item.get("name", "Unknown"))
+                    ranks.append(item.get("rank", "未知"))
+                    locations.append(item.get("location", "Unknown"))
+                    overall_scores.append(float(item.get("overall_score", 0)))
+                    teaching_scores.append(float(item.get("teaching_score", 0)))
+                    research_scores.append(float(item.get("research_score", 0)))
+                    citations_scores.append(float(item.get("citations_score", 0)))
+                    industry_income_scores.append(float(item.get("industry_income_score", 0)))
+                    international_outlook_scores.append(float(item.get("international_outlook_score", 0)))
+                    student_staff_ratios.append(float(item.get("student_staff_ratio", 0)))
+                    pc_intl_students.append(float(item.get("pc_intl_students", 0)))
+                    
+                    # 处理JSON数据，确保它是有效的JSON字符串
+                    try:
+                        import json
+                        # 如果json_data不存在或不是有效字符串，创建一个新的JSON对象
+                        json_data = item.get("json_data", "{}")
+                        if not isinstance(json_data, str):
+                            # 尝试将对象转为JSON字符串
+                            try:
+                                json_data = json.dumps(json_data, ensure_ascii=False)
+                            except:
+                                json_data = "{}"
+                        
+                        # 验证JSON的有效性
+                        try:
+                            json.loads(json_data)
+                        except:
+                            json_data = "{}"
+                            
+                        json_data_list.append(json_data)
+                    except:
+                        json_data_list.append("{}")
+                        
+                    dummy_vectors.append([0.0, 0.0])  # 添加虚拟向量[0.0, 0.0]
+                
+                # 执行批量插入
+                insert_data = [
+                    ids,
+                    names,
+                    ranks,
+                    locations,
+                    overall_scores,
+                    teaching_scores,
+                    research_scores,
+                    citations_scores,
+                    industry_income_scores,
+                    international_outlook_scores,
+                    student_staff_ratios,
+                    pc_intl_students,
+                    json_data_list,
+                    dummy_vectors  # 添加虚拟向量数据
+                ]
+                
+                collection.insert(insert_data, partition_name=_PARTITION_NAME)
+                print(f"已导入元数据批次 {batch_idx + 1}/{total_batches}，记录 {start_idx + 1} - {end_idx}")
             
-            collection.insert(insert_data, partition_name=_PARTITION_NAME)
-            print(f"已导入元数据批次 {batch_idx + 1}/{total_batches}，记录 {start_idx + 1} - {end_idx}")
-        
-        # 刷新集合
-        collection.flush()
-        print(f"元数据导入完成，共插入 {collection.num_entities} 条记录")
-        
-        return True
-    except Exception as e:
-        print(f"导入元数据时出错: {e}")
+            # 刷新集合
+            collection.flush()
+            print(f"元数据导入完成，共插入 {collection.num_entities} 条记录")
+            
+            return True
+        except Exception as e:
+            retry_count += 1
+            print(f"导入元数据失败，尝试重试 ({retry_count}/{max_retries}): {e}")
+            import traceback
+            traceback.print_exc()
+            import time
+            time.sleep(2)  # 延时后重试
+    
+    print("导入元数据失败，已达到最大重试次数")
+    return False
+
+def import_subjects_data(collection, data):
+    """导入学科向量数据，包含更丰富的学科信息"""
+    if not collection:
         return False
+    
+    # 添加重试机制
+    max_retries = 3
+    retry_count = 0
+    
+    while retry_count < max_retries:
+        try:
+            print(f"正在导入学科向量数据，共 {len(data)} 条记录")
+            
+            # 准备待插入的数据
+            ids = []
+            names = []
+            ranks = []
+            locations = []
+            subjects_list = []
+            subjects_counts = []
+            top_subjects_list = []
+            has_computer_science_list = []
+            has_engineering_list = []
+            has_medicine_list = []
+            subjects_vectors = []
+            
+            # 处理每条记录
+            batch_size = 1000  # 每批处理的数量
+            total_batches = (len(data) + batch_size - 1) // batch_size
+            
+            for batch_idx in range(total_batches):
+                start_idx = batch_idx * batch_size
+                end_idx = min((batch_idx + 1) * batch_size, len(data))
+                batch_data = data[start_idx:end_idx]
+                
+                # 清空批处理列表
+                ids.clear()
+                names.clear()
+                ranks.clear()
+                locations.clear()
+                subjects_list.clear()
+                subjects_counts.clear()
+                top_subjects_list.clear()
+                has_computer_science_list.clear()
+                has_engineering_list.clear()
+                has_medicine_list.clear()
+                subjects_vectors.clear()
+                
+                # 填充数据
+                for item in batch_data:
+                    ids.append(int(item.get("id", 0)))
+                    names.append(item.get("name", "Unknown"))
+                    ranks.append(item.get("rank", "未知"))
+                    locations.append(item.get("location", "Unknown"))
+                    
+                    # 处理学科数据
+                    subjects = item.get("subjects", [])
+                    
+                    # 转换为JSON字符串
+                    import json
+                    subjects_json = json.dumps(subjects, ensure_ascii=False)
+                    subjects_list.append(subjects_json)
+                    
+                    # 统计学科数量
+                    subjects_count = len(subjects) if isinstance(subjects, list) else 0
+                    subjects_counts.append(subjects_count)
+                    
+                    # 获取前3个主要学科
+                    if isinstance(subjects, list) and subjects:
+                        top_3_subjects = ", ".join(subjects[:3])
+                        if len(subjects) > 3:
+                            top_3_subjects += f" 等{len(subjects)}个"
+                    else:
+                        top_3_subjects = "无学科信息"
+                    top_subjects_list.append(top_3_subjects)
+                    
+                    # 检查是否包含特定学科
+                    has_cs = False
+                    has_eng = False
+                    has_med = False
+                    
+                    if isinstance(subjects, list):
+                        # 计算机科学相关关键词
+                        cs_keywords = ["计算机", "computer", "computing", "信息技术", "软件", "人工智能"]
+                        # 工程学相关关键词
+                        eng_keywords = ["工程", "engineering", "civil", "机械", "电子", "电气", "材料"]
+                        # 医学相关关键词
+                        med_keywords = ["医学", "medicine", "医疗", "临床", "健康", "药学", "生物医学"]
+                        
+                        for subject in subjects:
+                            subject_lower = subject.lower() if isinstance(subject, str) else ""
+                            # 检查计算机科学
+                            if any(keyword in subject_lower for keyword in cs_keywords):
+                                has_cs = True
+                            # 检查工程学
+                            if any(keyword in subject_lower for keyword in eng_keywords):
+                                has_eng = True
+                            # 检查医学
+                            if any(keyword in subject_lower for keyword in med_keywords):
+                                has_med = True
+                    
+                    has_computer_science_list.append(has_cs)
+                    has_engineering_list.append(has_eng)
+                    has_medicine_list.append(has_med)
+                    
+                    # 获取学科向量
+                    subjects_vectors.append(item.get("subjects_vector", [0] * 768))
+                
+                # 执行批量插入
+                insert_data = [
+                    ids,
+                    names,
+                    ranks,
+                    locations,
+                    subjects_list,
+                    subjects_counts,
+                    top_subjects_list,
+                    has_computer_science_list,
+                    has_engineering_list,
+                    has_medicine_list,
+                    subjects_vectors
+                ]
+                
+                collection.insert(insert_data, partition_name=_PARTITION_NAME)
+                print(f"已导入学科向量批次 {batch_idx + 1}/{total_batches}，记录 {start_idx + 1} - {end_idx}")
+            
+            # 刷新集合
+            collection.flush()
+            print(f"学科向量导入完成，共插入 {collection.num_entities} 条记录")
+            
+            return True
+        except Exception as e:
+            retry_count += 1
+            print(f"导入学科向量数据失败，尝试重试 ({retry_count}/{max_retries}): {e}")
+            import traceback
+            traceback.print_exc()
+            import time
+            time.sleep(2)  # 延时后重试
+    
+    print("导入学科向量数据失败，已达到最大重试次数")
+    return False
 
 def test_collections():
     """测试所有集合是否正常工作"""

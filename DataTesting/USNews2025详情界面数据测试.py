@@ -30,7 +30,7 @@ def search_universities(query_text, limit=5):
     
     try:
         # 连接到Milvus服务器
-        connections.connect("default", host=host", port=port)
+        connections.connect("default", host=host, port=port)
         print(f"✅ 已连接到Milvus服务器")
         
         # 加载集合
