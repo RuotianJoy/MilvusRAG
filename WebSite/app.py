@@ -37,13 +37,6 @@ sys.path.append(project_root)
 sys.path.append(os.path.join(project_root, "RAGTesting"))
 from RAGTesting import RAG_TestingAndEvaluation
 
-# 设置RAG测试配置
-RAG_CONFIG = {
-    "USE_MULTI_COLLECTIONS": True,  # 是否启用多集合搜索
-    "DEBUG_MODE": False,            # 是否启用调试模式
-    "TOP_K": 3                      # 每个集合返回的结果数量
-}
-
 # 配置应用
 app = Flask(__name__)
 app.secret_key = "milvusrag_secret_key"
@@ -398,14 +391,6 @@ def run_test():
         if isinstance(models, str):
             models = [models]  # 确保是列表
         
-        # 获取搜索配置
-        search_config = data.get('search_config', {})
-        use_multi_collections = search_config.get('use_multi_collections', RAG_CONFIG['USE_MULTI_COLLECTIONS'])
-        debug_mode = search_config.get('debug_mode', RAG_CONFIG['DEBUG_MODE'])
-        top_k = search_config.get('top_k', RAG_CONFIG['TOP_K'])
-        
-        app.logger.info(f"搜索配置: 多集合={use_multi_collections}, 调试模式={debug_mode}, Top-K={top_k}")
-        
         use_multi_model = len(models) > 1  # 是否使用多模型对比
         
         app.logger.info(f"测试文件路径: {filepath}, 会话ID: {session_id}, 文件名: {filename}")
@@ -504,24 +489,7 @@ def run_test():
                 
                 # 检索知识
                 app.logger.info("开始检索知识...")
-                # 将多集合搜索配置传递给RAG_TestingAndEvaluation模块
-                # 注意：集合搜索是在模块内部处理的，不需要我们在这里筛选集合
-                context = RAG_TestingAndEvaluation.load_knowledge_variables(
-                    knowledge_collections, 
-                    user_input, 
-                    top_k=top_k,
-                    use_multi_collections=use_multi_collections
-                )
-                
-                # 提取数据来源信息
-                data_sources = []
-                try:
-                    for line in context.split("\n"):
-                        if line.startswith("以下信息来自"):
-                            source = line.replace("以下信息来自", "").strip()
-                            data_sources.append(source)
-                except Exception as source_error:
-                    app.logger.error(f"提取数据来源信息失败: {str(source_error)}")
+                context = RAG_TestingAndEvaluation.load_knowledge_variables(knowledge_collections, user_input, top_k=3)
                 
                 # 根据设置决定是使用单一模型还是多模型对比
                 if use_multi_model:
@@ -545,8 +513,7 @@ def run_test():
                         'model_answers': model_answers,
                         'model_metrics': model_metrics,
                         'retrieval_time': retrieval_time,
-                        'multi_model': True,
-                        'data_sources': ", ".join(data_sources)
+                        'multi_model': True
                     }
                 else:
                     # 单一模型生成
@@ -570,8 +537,7 @@ def run_test():
                         'generated': generated_answer,
                         'retrieval_time': retrieval_time,
                         'metrics': metrics,
-                        'multi_model': False,
-                        'data_sources': ", ".join(data_sources)
+                        'multi_model': False
                     }
                 
                 results_data.append(result_item)
@@ -634,8 +600,7 @@ def run_test():
                     base_row = {
                         'Question': item['question'],
                         'Reference': item['reference'],
-                        'Retrieval_Time': item['retrieval_time'],
-                        'Data_Sources': item.get('data_sources', '')
+                        'Retrieval_Time': item['retrieval_time']
                     }
                     
                     # 为每个模型创建一行
@@ -659,8 +624,7 @@ def run_test():
                         'Reference': item['reference'],
                         'Generated': item['generated'],
                         'Retrieval_Time': item['retrieval_time'],
-                        'Model': models[0] if models else "deepseek-chat",
-                        'Data_Sources': item.get('data_sources', '')
+                        'Model': models[0] if models else "deepseek-chat"
                     }
                     # 添加所有指标
                     for metric, value in item['metrics'].items():
@@ -916,8 +880,21 @@ def download_file(filename):
 
 def connect_to_milvus():
     """连接到Milvus服务器"""
-    # 使用RAG_TestingAndEvaluation模块中的同名函数
-    return RAG_TestingAndEvaluation.connect_to_milvus()
+    try:
+        # 检查是否已连接
+        try:
+            if utility.has_collection("_dummy_check_"):
+                return True  # 已连接
+        except:
+            pass  # 继续尝试连接
+            
+        # 重新连接
+        connections.connect("default", host=MILVUS_HOST, port=MILVUS_PORT)
+        print(f"成功连接到Milvus服务器: {MILVUS_HOST}:{MILVUS_PORT}")
+        return True
+    except Exception as e:
+        print(f"Milvus连接失败: {e}")
+        return False
 
 if __name__ == '__main__':
     # 配置日志

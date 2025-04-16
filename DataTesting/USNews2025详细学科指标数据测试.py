@@ -27,15 +27,16 @@ class USNews2025SubjectDataTester:
     def __init__(self):
         """
         初始化测试器
+        
+        Args:
+            host: Milvus服务器主机
+            port: Milvus服务器端口
         """
         # 连接Milvus服务
         self.connect_to_milvus()
         
-        # 初始化BERT模型用于查询嵌入，使用CPU避免Metal相关错误
-        # 禁用Metal性能着色器
-        os.environ["DISABLE_METAL"] = "1"
-        # 初始化BERT模型，指定使用CPU
-        self.embedding_model = SentenceTransformer('all-MiniLM-L6-v2', device='cpu')
+        # 初始化BERT模型用于查询嵌入
+        self.embedding_model = SentenceTransformer('all-MiniLM-L6-v2')
         
         # 集合名称
         self.schools_collection_name = "usnews2025_schools"
@@ -483,5 +484,5 @@ class USNews2025SubjectDataTester:
 
 # 如果作为主程序运行
 if __name__ == "__main__":
-    tester = USNews2025SubjectDataTester()
+    tester = USNews2025SubjectDataTester(host="localhost", port="19530")
     tester.run_all_tests() 

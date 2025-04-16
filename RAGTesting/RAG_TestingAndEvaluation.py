@@ -139,8 +139,8 @@ COLLECTION_DIMS = {
 }
 
 # 设置OpenAI API密钥（从环境变量获取或设置）
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "sk-qvJtRhsJdn97oivEXcM3pxG1FClBwvXPCxfenxOfIc11Xeyy")
-OPENAI_BASE_URL = os.getenv("OPENAI_BASE_URL", "https://api.nuwaapi.com/v1")
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "sk-a1d1b3e15fff4edc994d08083793088b")
+OPENAI_BASE_URL = os.getenv("OPENAI_BASE_URL", "https://api.deepseek.com")
 
 # 如果环境变量中没有API密钥，提示用户输入
 if not OPENAI_API_KEY:
@@ -647,10 +647,6 @@ def search_arwu_knowledge(collection, query, top_k=5, region=None, country=None)
     except Exception as e:
         print(f"ARWU查询出错: {e}")
         return []
-
-def search_the2025_knowledge(collection, query, top_k):
-    pass
-
 
 # 从美国高校数据中搜索相关信息
 def search_us_colleges_knowledge(collection, query, top_k=5, state=None, region=None, control=None):
@@ -1247,42 +1243,11 @@ def keyword_search(collection, query, top_k=5):
         traceback.print_exc()
         return []
 
-def format_search_results(records, keywords, collection_name, similarity_scores=None):
-    """格式化搜索结果
-    
-    参数:
-        records: 记录列表
-        keywords: 关键词列表
-        collection_name: 集合名称
-        similarity_scores: 相似度分数列表(如果有)
-        
-    返回:
-        格式化后的文本列表
-    """
+def format_search_results(records, keywords, collection_name):
+    """格式化搜索结果"""
     retrieved_texts = []
     for i, record in enumerate(records):
-        # 根据来源集合添加标识
-        collection_label = ""
-        if "arwu_text" in collection_name:
-            collection_label = "ARWU文本集合"
-        elif "arwu_score" in collection_name:
-            collection_label = "ARWU评分集合"
-        elif "arwu_enhanced" in collection_name:
-            collection_label = "ARWU增强集合"
-        elif "us_colleges" in collection_name:
-            collection_label = "美国高校集合"
-        else:
-            collection_label = collection_name
-        
-        # 添加基本信息
-        info = f"搜索结果 #{i+1} (ID: {record.get('id', 'N/A')}, 来源: {collection_label})\n"
-        
-        # 添加相似度分数信息(如果有)
-        if similarity_scores and i < len(similarity_scores):
-            score = similarity_scores[i]
-            # 保留4位小数
-            score_str = f"{score:.4f}" if isinstance(score, float) else str(score)
-            info += f"相似度得分: {score_str}\n"
+        info = f"搜索结果 #{i+1} (ID: {record.get('id', 'N/A')})\n"
         
         # 根据集合类型构造信息字符串
         if "arwu" in collection_name:
@@ -1305,9 +1270,6 @@ def format_search_results(records, keywords, collection_name, similarity_scores=
             
             if "rank" in record:
                 info += f"世界排名: {record.get('rank', 'N/A')}\n"
-                
-            if "year" in record:
-                info += f"排名年份: {record.get('year', 'N/A')}\n"
             
             # 添加分数信息
             score_fields = [
@@ -1455,9 +1417,7 @@ def extract_university_names(text):
     return results
 
 # 修改load_knowledge_variables函数，优先使用关键词搜索
-
-
-def load_knowledge_variables(collections, query, top_k=5, use_keyword_search=True, use_multi_collections=True):
+def load_knowledge_variables(collections, query, top_k=5, use_keyword_search=True):
     """加载知识变量，根据查询检索相关信息
     
     参数:
@@ -1465,7 +1425,6 @@ def load_knowledge_variables(collections, query, top_k=5, use_keyword_search=Tru
         query: 查询文本
         top_k: 返回结果数量
         use_keyword_search: 是否优先使用关键词搜索
-        use_multi_collections: 是否在多个集合中搜索
     """
     try:
         # 分析查询类型
@@ -1474,11 +1433,11 @@ def load_knowledge_variables(collections, query, top_k=5, use_keyword_search=Tru
         
         # 决定使用哪个数据集
         dataset_type = query_analysis["dataset"]
+        retrieved_texts = []
+        context_source = "未知数据源"
         
-        # 存储所有检索到的结果
-        all_retrieved_texts = []
-        # 存储每个结果的来源
-        result_sources = []
+        # 尝试所有可用数据集，从最匹配的开始
+        tried_collections = []
         
         # 准备要搜索的集合
         collections_to_try = []
@@ -1486,25 +1445,17 @@ def load_knowledge_variables(collections, query, top_k=5, use_keyword_search=Tru
         # 如果collections是字典类型
         if isinstance(collections, dict):
             # 首先根据查询分析筛选合适的集合
-            priority_collections = []
             if dataset_type == "us_colleges" and "us_colleges" in collections:
-                priority_collections.append(("us_colleges", collections["us_colleges"]))
+                collections_to_try.append(("us_colleges", collections["us_colleges"]))
             elif dataset_type == "arwu":
                 # 优先使用最匹配的ARWU数据集
                 arwu_collections = ["arwu_text", "arwu_score", "arwu_enhanced"]
                 for coll_name in arwu_collections:
                     if coll_name in collections:
-                        priority_collections.append((coll_name, collections[coll_name]))
+                        collections_to_try.append((coll_name, collections[coll_name]))
             
-            # 将优先集合排在前面
-            if priority_collections:
-                collections_to_try = priority_collections
-                # 如果启用多集合搜索，添加其他未包含的集合
-                if use_multi_collections:
-                    for coll_name, collection in collections.items():
-                        if coll_name not in [name for name, _ in priority_collections]:
-                            collections_to_try.append((coll_name, collection))
-            else:
+            # 如果没有找到合适的集合，试用所有集合
+            if not collections_to_try:
                 collections_to_try = list(collections.items())
         # 如果collections是列表或其他类型
         else:
@@ -1522,16 +1473,15 @@ def load_knowledge_variables(collections, query, top_k=5, use_keyword_search=Tru
                 print(f"\n开始搜索集合: {coll_name}")
                 collection.load()
                 
-                retrieved_texts = []
-                context_source = ""
-                
                 # 优先使用关键词搜索
                 if use_keyword_search:
                     texts = keyword_search(collection, query, top_k=top_k)
                     if texts:
                         retrieved_texts = texts
                         context_source = f"关键词搜索 ({coll_name})"
+                        tried_collections.append(coll_name)
                         print(f"关键词搜索成功: {coll_name}")
+                        break
                 
                 # 如果关键词搜索没有结果，回退到向量搜索
                 if not retrieved_texts:
@@ -1540,9 +1490,6 @@ def load_knowledge_variables(collections, query, top_k=5, use_keyword_search=Tru
                         texts = search_arwu_knowledge(collection, query, top_k=top_k)
                     elif coll_name == "us_colleges":
                         texts = search_us_colleges_knowledge(collection, query, top_k=top_k)
-                    elif "the2025" in coll_name:
-                        texts = search_the2025_knowledge(collection, query, top_k=top_k)
-                    #
                     else:
                         # 未知集合类型，跳过
                         print(f"未知集合类型，跳过: {coll_name}")
@@ -1551,56 +1498,57 @@ def load_knowledge_variables(collections, query, top_k=5, use_keyword_search=Tru
                     if texts:
                         retrieved_texts = texts
                         context_source = f"向量搜索 ({coll_name})"
+                        tried_collections.append(coll_name)
                         print(f"向量搜索成功: {coll_name}")
-                
-                # 如果从当前集合检索到了结果，添加到总结果列表
-                if retrieved_texts:
-                    for text in retrieved_texts:
-                        all_retrieved_texts.append(text)
-                        result_sources.append(context_source)
-                    
-                    # 如果不使用多集合搜索，找到结果后立即停止
-                    if not use_multi_collections:
-                        print(f"已找到结果，且未启用多集合搜索，不再继续查找其他集合")
                         break
             except Exception as e:
                 print(f"搜索集合 {coll_name} 时出错: {e}")
         
+        # 如果仍未找到结果，尝试所有未尝试过的集合
+        if not retrieved_texts:
+            print("首选搜索方法未返回结果，尝试其他未使用的集合")
+            for coll_name, collection in collections_to_try:
+                if coll_name not in tried_collections:
+                    try:
+                        collection.load()
+                        # 尝试关键词搜索
+                        if use_keyword_search:
+                            texts = keyword_search(collection, query, top_k=top_k)
+                            if texts:
+                                retrieved_texts = texts
+                                context_source = f"备用关键词搜索 ({coll_name})"
+                                tried_collections.append(coll_name)
+                                break
+                        
+                        # 尝试向量搜索
+                        if not retrieved_texts:
+                            if "arwu" in coll_name:
+                                texts = search_arwu_knowledge(collection, query, top_k=top_k)
+                            elif coll_name == "us_colleges":
+                                texts = search_us_colleges_knowledge(collection, query, top_k=top_k)
+                            else:
+                                continue
+                                
+                            if texts:
+                                retrieved_texts = texts
+                                context_source = f"备用向量搜索 ({coll_name})"
+                                break
+                    except Exception as e:
+                        print(f"尝试备用集合 {coll_name} 时出错: {e}")
+        
         # 打印最终检索到的文本
         print("\n=== 最终检索结果 ===")
-        if all_retrieved_texts:
-            # 根据相关性对结果去重和排序
-            unique_texts = []
-            unique_sources = []
-            
-            # 简单去重（更复杂的实现可以考虑文本相似度）
-            for i, text in enumerate(all_retrieved_texts):
-                if text not in unique_texts:
-                    unique_texts.append(text)
-                    unique_sources.append(result_sources[i])
-            
-            # 限制结果数量，保留最相关的top_k个
-            final_texts = unique_texts[:top_k]
-            final_sources = unique_sources[:top_k]
-            
-            # 打印信息
-            for i, (text, source) in enumerate(zip(final_texts, final_sources)):
-                print(f"\n检索文本 {i+1} (来源: {source}):\n{text}")
-            
-            # 合并检索结果
-            source_text_groups = {}
-            for text, source in zip(final_texts, final_sources):
-                if source not in source_text_groups:
-                    source_text_groups[source] = []
-                source_text_groups[source].append(text)
-            
-            context_parts = []
-            for source, texts in source_text_groups.items():
-                context_parts.append(f"以下信息来自{source}:\n\n" + "\n\n".join(texts))
-            
-            context = "\n\n" + "="*50 + "\n\n".join(context_parts)
+        if retrieved_texts:
+            print(f"来源: {context_source}")
+            for i, text in enumerate(retrieved_texts):
+                print(f"\n检索文本 {i+1}:\n{text}")
         else:
             print("未检索到任何相关文本")
+        
+        # 合并检索结果
+        if retrieved_texts:
+            context = f"以下信息来自{context_source}:\n\n" + "\n\n".join(retrieved_texts)
+        else:
             context = "未找到相关信息。系统无法在数据库中检索到与查询相关的大学数据。"
             
         return context
@@ -1627,16 +1575,9 @@ def generate_answer(query, context, model_name="deepseek-chat"):
         system_prompt = """
         你是一个专门回答大学相关问题的AI助手。你可以提供关于大学排名、学校情况、地理位置等信息。
         
-        请根据提供的相关知识背景严格使用简洁精炼的语言完整回答用户的问题。如果知识背景中没有相关信息，请基于你的常识进行回答。你的回答中不得带有"注"或者"需要注意"的部分的描述。
+        请根据提供的相关知识背景严格使用简洁精炼的语言完整回答用户的问题。如果知识背景中没有相关信息，请基于你的常识进行回答。你的回答中不得带有"注"或者"需要注意"的部分的描述。，
         
-        知识背景可能来自多个数据源，每个数据源会有明确的标记。如果不同数据源提供了冲突的信息，请综合考虑数据的可信度和完整性，优先使用：
-        1. 最新的信息（如果有日期标记）
-        2. 官方排名数据优先于非官方数据
-        3. 具体详细的信息优先于笼统的描述
-        
-        如果是关于排名的问题，一定要提及具体的排名来源和排名年份。如果有多个来源的排名数据，可以一并提及并说明各自的特点。
-        
-        请注意，你的回答应该是连贯的、统一的，而不是简单地拼接不同数据源的信息。需要对所有数据源的信息进行整合，形成一个完整的答案。
+        如果是关于排名的问题，一定要提及具体的排名来源和排名年份。
         """
 
         # 默认使用DeepSeek API
@@ -1844,12 +1785,9 @@ def main():
     # 配置参数
     USE_LOCAL_EMBEDDINGS = True  # 设置为True表示优先使用本地嵌入模型
     LOCAL_MODEL_NAME = "paraphrase-multilingual-MiniLM-L12-v2"  # 多语言模型，支持中英文
-    SEARCH_MULTI_COLLECTIONS = True  # 设置为True表示在多个集合中搜索
-    DEBUG_MODE = False  # 调试模式，输出更多信息
 
     # 打印配置信息
     print(f"使用本地嵌入: {'是' if USE_LOCAL_EMBEDDINGS else '否'}")
-    print(f"使用多集合搜索: {'是' if SEARCH_MULTI_COLLECTIONS else '否'}")
     if USE_LOCAL_EMBEDDINGS:
         print(f"本地模型: {LOCAL_MODEL_NAME}")
 
@@ -1931,7 +1869,6 @@ def main():
     # 4. 评测数据存储
     results_data = []
     spend_time = []
-    data_source_stats = {}  # 记录数据源使用情况
     
     for idx, row in df.iterrows():
         user_input = str(row["Questions"])
@@ -1945,47 +1882,29 @@ def main():
             # 5. 检索相关信息
             relevant_knowledge = load_knowledge_variables(knowledge_collections, user_input, top_k=3)
             
-            # 6. 统计数据源使用情况
-            sources = []
-            try:
-                for line in relevant_knowledge.split("\n"):
-                    if line.startswith("以下信息来自"):
-                        source = line.replace("以下信息来自", "").strip()
-                        sources.append(source)
-                        if source in data_source_stats:
-                            data_source_stats[source] += 1
-                        else:
-                            data_source_stats[source] = 1
-            except Exception as e:
-                print(f"处理数据源统计时出错: {e}")
-            
-            # 7. 生成回答
+            # 6. 生成回答
             bot_response = generate_answer(user_input, relevant_knowledge)
             
-            # 8. 记录响应时间
+            # 7. 记录响应时间
             end_time = time.time()
             retrieval_time = end_time - start_time
             spend_time.append(retrieval_time)
             print(f"响应时间: {retrieval_time:.2f}秒")
+            print(user_input)
+            print(reference_answer)
+            print(relevant_knowledge)
             
-            if DEBUG_MODE:
-                print(f"问题: {user_input}")
-                print(f"参考答案: {reference_answer}")
-                print(f"检索知识: {relevant_knowledge}")
-                print(f"数据源: {sources}")
-            
-            # 9. 评估答案
+            # 8. 评估答案
             print("评估生成回答...")
             metrics = evaluate_with_metrics(bot_response, reference_answer)
             
-            # 10. 记录结果
+            # 9. 记录结果
             result = {
                 "question": user_input,
                 "reference": reference_answer,
                 "response": bot_response,
                 "retrieval_time": retrieval_time,
-                "context": relevant_knowledge,
-                "data_sources": ", ".join(sources)
+                "context": relevant_knowledge
             }
             # 添加评估指标
             result.update(metrics)
@@ -2002,7 +1921,7 @@ def main():
             traceback.print_exc()
             continue
     
-    # 11. 保存评估结果
+    # 10. 保存评估结果
     if results_data:
         try:
             # 转换为DataFrame
@@ -2028,11 +1947,6 @@ def main():
             for metric, value in avg_scores.items():
                 print(f"{metric}: {value:.4f}")
             
-            # 输出数据源使用统计
-            print("\n=== 数据源使用统计 ===")
-            for source, count in data_source_stats.items():
-                print(f"{source}: {count}次")
-            
             # 写入评测结果
             timestamp = time.strftime("%Y%m%d_%H%M%S")
             csv_file = f"evaluation_results_{timestamp}.csv"
@@ -2052,20 +1966,8 @@ def main():
                 encoding="utf-8-sig"
             )
             
-            # 保存数据源统计
-            source_stats_df = pd.DataFrame(
-                [{"source": source, "count": count} for source, count in data_source_stats.items()]
-            )
-            source_stats_file = f"data_source_stats_{timestamp}.csv"
-            source_stats_df.to_csv(
-                source_stats_file,
-                index=False,
-                encoding="utf-8-sig"
-            )
-            
             print(f"评估结果已保存到 {csv_file}")
             print(f"评估摘要已保存到 {summary_file}")
-            print(f"数据源统计已保存到 {source_stats_file}")
         except Exception as e:
             print(f"保存评估结果时出错: {e}")
             import traceback
