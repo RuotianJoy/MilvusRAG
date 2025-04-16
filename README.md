@@ -232,12 +232,6 @@ ROUGE（Recall-Oriented Understudy for Gisting Evaluation）是一组广泛应�
    python DataUploading/ARWU排名完整导入.py
    ```
 
-3. **同样处理和导入维基百科美国高校数据**
-
-   ```bash
-   python DataProcessing/Wiki美国高校初步数据处理.py
-   python DataUploading/Wiki美国高校初步数据导入.py
-   ```
 
 ### 命令行测试与评估
 
@@ -262,7 +256,7 @@ python RAGTesting/RAG_TestingAndEvaluation.py
    python app.py
    ```
 
-   应用将在 `http://localhost:5000` 上启动。
+   应用将在 `http://localhost:5555` 上启动。
 
 ## Web应用功能
 
@@ -293,7 +287,7 @@ python RAGTesting/RAG_TestingAndEvaluation.py
 
 ## 注意事项
 
-- Web应用默认只处理前10个测试问题，以避免长时间运行
+- Web应用默认只处理前50个测试问题，以避免长时间运行
 - 确保Milvus服务正常运行且已导入数据
 - 测试结果会保存在`WebSite/uploads`目录下的CSV文件中
 - 在使用前请确保配置了正确的API密钥
