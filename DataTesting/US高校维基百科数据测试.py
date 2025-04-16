@@ -8,8 +8,7 @@ from pymilvus import (
     utility
 )
 from dotenv import load_dotenv
-from transformers import BertModel, BertTokenizer
-import torch
+from sentence_transformers import SentenceTransformer
 import configparser
 
 # 配置日志
@@ -33,25 +32,24 @@ def load_config():
         'port': config.get('connection', 'port', fallback='19530')
     }
 
-COLLECTION_NAME = "us_colleges_wiki" 
+COLLECTION_NAME = "us_colleges_1744732028"
 
-# 全局BERT模型和分词器
-BERT_MODEL = None
-BERT_TOKENIZER = None
+# 全局模型
+MODEL = None
+VECTOR_DIM = 384  # 默认值，会根据模型自动调整
 
-def load_bert_model():
-    """加载BERT模型和分词器"""
-    global BERT_MODEL, BERT_TOKENIZER
-    if BERT_MODEL is None or BERT_TOKENIZER is None:
-        logging.info("加载BERT模型和分词器...")
+def load_model():
+    """加载SentenceTransformer模型"""
+    global MODEL, VECTOR_DIM
+    if MODEL is None:
+        logging.info("加载SentenceTransformer模型...")
         try:
-            # 使用bert-base-uncased模型
-            model_name = "bert-base-uncased"
-            BERT_TOKENIZER = BertTokenizer.from_pretrained(model_name)
-            BERT_MODEL = BertModel.from_pretrained(model_name)
-            logging.info("BERT模型和分词器加载成功")
+            # 使用轻量级模型
+            MODEL = SentenceTransformer('all-MiniLM-L6-v2')
+            VECTOR_DIM = MODEL.get_sentence_embedding_dimension()
+            logging.info(f"SentenceTransformer模型加载成功，向量维度: {VECTOR_DIM}")
         except Exception as e:
-            logging.error(f"加载BERT模型时出错: {e}")
+            logging.error(f"加载模型时出错: {e}")
             raise
 
 def connect_to_milvus():
@@ -89,31 +87,24 @@ def check_collection():
     return collection
 
 def get_embedding(text):
-    """使用BERT获取文本嵌入向量"""
-    global BERT_MODEL, BERT_TOKENIZER
+    """使用SentenceTransformer获取文本嵌入向量"""
+    global MODEL
     
     # 确保模型已加载
-    if BERT_MODEL is None or BERT_TOKENIZER is None:
-        load_bert_model()
+    if MODEL is None:
+        load_model()
     
     try:
         # 预处理文本，截断过长的文本
-        max_seq_length = 512  # BERT最大序列长度
+        max_seq_length = 512
         if len(text.split()) > max_seq_length * 0.8:  # 按词数粗略估计
             # 截断过长的文本
             words = text.split()
             text = " ".join(words[:int(max_seq_length * 0.8)])
             logging.warning(f"文本被截断，原长度：{len(words)} 词，截断后：{len(text.split())} 词")
         
-        # 将文本转换为BERT输入格式
-        inputs = BERT_TOKENIZER(text, return_tensors="pt", truncation=True, max_length=max_seq_length)
-        
         # 使用模型生成嵌入
-        with torch.no_grad():
-            outputs = BERT_MODEL(**inputs)
-        
-        # 使用[CLS]标记的最后隐层状态作为文本表示
-        embedding = outputs.last_hidden_state[:, 0, :].numpy().flatten()
+        embedding = MODEL.encode(text)
         
         return embedding
     

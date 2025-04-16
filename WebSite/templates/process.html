@@ -214,6 +214,31 @@
                                 </div>
                             </div>
                             
+                            <!-- 添加搜索配置选项 -->
+                            <div class="card mb-3">
+                                <div class="card-header">
+                                    <h6 class="mb-0">检索配置</h6>
+                                </div>
+                                <div class="card-body">
+                                    <div class="form-check form-switch mb-2">
+                                        <input class="form-check-input" type="checkbox" id="useMultiCollections" checked>
+                                        <label class="form-check-label" for="useMultiCollections">
+                                            启用多集合搜索（在多个数据库中搜索）
+                                        </label>
+                                    </div>
+                                    <div class="form-check form-switch mb-2">
+                                        <input class="form-check-input" type="checkbox" id="debugMode">
+                                        <label class="form-check-label" for="debugMode">
+                                            调试模式（显示更多搜索信息）
+                                        </label>
+                                    </div>
+                                    <div class="mb-3">
+                                        <label for="topK" class="form-label">每个集合返回结果数 (Top-K)</label>
+                                        <input type="number" class="form-control" id="topK" min="1" max="10" value="3">
+                                    </div>
+                                </div>
+                            </div>
+                            
                             {% for question in questions %}
                                 <div class="test-item" id="question-{{ loop.index0 }}">
                                     <h5>{{ loop.index }}. {{ question }}</h5>
@@ -262,7 +287,9 @@
                 // 获取选择的模型
                 const selectedModels = [];
                 document.querySelectorAll('input[type="checkbox"]:checked').forEach(function(checkbox) {
-                    selectedModels.push(checkbox.value);
+                    if (checkbox.id === 'modelDeepseek' || checkbox.id === 'modelGPT') {
+                        selectedModels.push(checkbox.value);
+                    }
                 });
                 
                 // 检查是否至少选择了一个模型
@@ -272,6 +299,11 @@
                 } else {
                     document.getElementById('modelAlert').style.display = 'none';
                 }
+                
+                // 获取搜索配置
+                const useMultiCollections = document.getElementById('useMultiCollections').checked;
+                const debugMode = document.getElementById('debugMode').checked;
+                const topK = parseInt(document.getElementById('topK').value) || 3;
                 
                 // 禁用开始按钮
                 startTestBtn.disabled = true;
@@ -286,7 +318,12 @@
                     body: JSON.stringify({
                         filepath: "RAG"+sessionId+".xlsx",
                         session_id: sessionId,
-                        models: selectedModels
+                        models: selectedModels,
+                        search_config: {
+                            use_multi_collections: useMultiCollections,
+                            debug_mode: debugMode,
+                            top_k: topK
+                        }
                     })
                 })
                 .then(function(response) {
@@ -425,6 +462,17 @@
                                         <strong>检索时间:</strong> ${result.retrieval_time.toFixed(2)}秒
                                     </div>
                                     
+                                    ${result.data_sources ? `
+                                    <div class="mb-2">
+                                        <strong>数据来源:</strong>
+                                        <div class="alert alert-info">
+                                            ${result.data_sources.split(',').map(source => 
+                                                `<span class="badge bg-secondary me-2">${source.trim()}</span>`
+                                            ).join('')}
+                                        </div>
+                                    </div>
+                                    ` : ''}
+                                    
                                     <div>
                                         <strong>评估指标:</strong>
                                         <div class="row">
@@ -493,6 +541,16 @@
                             <div class="mb-2">
                                 <strong>检索时间:</strong> ${result.retrieval_time.toFixed(2)}秒
                             </div>
+                            ${result.data_sources ? `
+                            <div class="mb-2">
+                                <strong>数据来源:</strong>
+                                <div class="alert alert-info">
+                                    ${result.data_sources.split(',').map(source => 
+                                        `<span class="badge bg-secondary me-2">${source.trim()}</span>`
+                                    ).join('')}
+                                </div>
+                            </div>
+                            ` : ''}
                             <div>
                                 <strong>评估指标:</strong>
                                 <div class="row">
@@ -605,11 +663,40 @@
                 
                 // 创建结果摘要
                 const resultsSummary = document.getElementById('resultsSummary');
+                
+                // 统计数据来源使用情况
+                let dataSources = {};
+                results.forEach(result => {
+                    if (result.data_sources) {
+                        result.data_sources.split(',').forEach(source => {
+                            const trimmedSource = source.trim();
+                            if (trimmedSource) {
+                                dataSources[trimmedSource] = (dataSources[trimmedSource] || 0) + 1;
+                            }
+                        });
+                    }
+                });
+                
+                let dataSourcesHTML = '';
+                if (Object.keys(dataSources).length > 0) {
+                    dataSourcesHTML = `
+                        <div class="alert alert-info mt-3">
+                            <strong>数据来源统计:</strong><br>
+                            <div class="mt-2">
+                                ${Object.entries(dataSources).map(([source, count]) => 
+                                    `<span class="badge bg-primary me-2">${source}: ${count}次</span>`
+                                ).join('')}
+                            </div>
+                        </div>
+                    `;
+                }
+                
                 resultsSummary.innerHTML = `
                     <div class="alert alert-success">
                         <i class="bi bi-check-circle-fill"></i> 测试完成! 共测试了 ${results.length} 个问题。
                         ${isMultiModel ? '使用了多模型对比模式。' : ''}
                     </div>
+                    ${dataSourcesHTML}
                 `;
                 
                 // 数据准备 - 根据单模型或多模型情况
