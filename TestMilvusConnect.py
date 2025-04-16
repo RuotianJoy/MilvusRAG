@@ -12,8 +12,8 @@ from pymilvus import connections, utility
 import time
 
 # 连接参数
-HOST = '127.0.0.1'
-PORT = '19530'
+HOST = '8.tcp.cpolar.cn'
+PORT = '10543'
 
 
 def test_milvus_connection():

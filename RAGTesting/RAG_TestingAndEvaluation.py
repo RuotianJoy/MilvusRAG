@@ -28,6 +28,7 @@ import numpy as np
 from dotenv import load_dotenv
 # 只保留ROUGE相关导入
 from rouge import Rouge
+import re
 
 # 初始化ROUGE
 try:
@@ -437,6 +438,20 @@ def analyze_query(query):
     if any(keyword in query.lower() for keyword in ranking_keywords):
         result["is_ranking_question"] = True
 
+    # 检测是否特指THE2025排名
+    the_keywords = ["THE", "times higher education", "泰晤士", "THE2025", "2025年泰晤士"]
+    if any(keyword.lower() in query.lower() for keyword in the_keywords):
+        result["dataset"] = "the2025"
+        
+    # 检测THE排名特有关键词
+    the_specific_keywords = [
+        "教学环境", "研究实力", "引用影响力", "产业收入", "国际化", 
+        "teaching", "research", "citations", "industry", "international outlook",
+        "师生比例", "国际学生", "student staff ratio"
+    ]
+    if any(keyword.lower() in query.lower() for keyword in the_specific_keywords):
+        result["dataset"] = "the2025"
+
     # 检测地区关键词
     if "亚洲" in query or "asia" in query.lower():
         result["region"] = "Asia"
@@ -454,7 +469,9 @@ def analyze_query(query):
         result["country"] = "China"
     elif "美国" in query or "usa" in query.lower() or "america" in query.lower() or "united states" in query.lower():
         result["country"] = "United States"
-        result["dataset"] = "us_colleges"  # 如果明确提到美国，优先使用美国高校数据集
+        # 如果专门提到THE排名，则保持THE2025数据集
+        if not result["dataset"] == "the2025":
+            result["dataset"] = "us_colleges"  # 如果明确提到美国，优先使用美国高校数据集
     elif "英国" in query or "uk" in query.lower() or "united kingdom" in query.lower() or "britain" in query.lower():
         result["country"] = "United Kingdom"
     elif "日本" in query or "japan" in query.lower():
@@ -477,20 +494,26 @@ def analyze_query(query):
     for cn_state, en_state in us_states.items():
         if cn_state in query.lower() or en_state.lower() in query.lower():
             result["state"] = en_state
-            result["dataset"] = "us_colleges"  # 如果提到美国州，优先使用美国高校数据集
+            # 如果专门提到THE排名，则保持THE2025数据集
+            if not result["dataset"] == "the2025":
+                result["dataset"] = "us_colleges"  # 如果提到美国州，优先使用美国高校数据集
             break
 
     # 检测公立/私立关键词
     if "公立" in query or "public" in query.lower():
         result["control"] = "Public"
-        result["dataset"] = "us_colleges"
+        # 如果专门提到THE排名，则保持THE2025数据集
+        if not result["dataset"] == "the2025":
+            result["dataset"] = "us_colleges"
     elif "私立" in query or "private" in query.lower():
         result["control"] = "Private"
-        result["dataset"] = "us_colleges"
+        # 如果专门提到THE排名，则保持THE2025数据集
+        if not result["dataset"] == "the2025":
+            result["dataset"] = "us_colleges"
 
     # 特定类型的大学关键词
     college_types = ["liberal arts", "研究型", "research", "community college", "社区学院"]
-    if any(term in query.lower() for term in college_types):
+    if any(term in query.lower() for term in college_types) and not result["dataset"] == "the2025":
         result["dataset"] = "us_colleges"
 
     return result
@@ -648,9 +671,432 @@ def search_arwu_knowledge(collection, query, top_k=5, region=None, country=None)
         print(f"ARWU查询出错: {e}")
         return []
 
-def search_the2025_knowledge(collection, query, top_k):
-    pass
+# 格式化THE2025搜索结果
+def format_the2025_results(records, keywords=None, similarity_scores=None):
+    """格式化THE2025搜索结果，提供更好的显示格式
+    
+    Args:
+        records: 检索到的记录列表
+        keywords: 搜索的关键词（可选）
+        similarity_scores: 相似度分数（可选）
+    
+    Returns:
+        格式化后的文本列表
+    """
+    formatted_results = []
+    
+    # 如果没有提供关键词，尝试提取
+    if not keywords:
+        keywords = []
+    
+    for i, record in enumerate(records):
+        # 获取相似度得分
+        similarity = similarity_scores[i] if similarity_scores and i < len(similarity_scores) else None
+        
+        # 格式化单条结果
+        result = ""
+        
+        # 添加学校名称和排名（必须字段）
+        if "name" in record:
+            result += f"学校: {record['name']}\n"
+        
+        if "rank" in record:
+            result += f"THE2025排名: {record['rank']}\n"
+        
+        if "location" in record:
+            result += f"位置: {record['location']}\n"
+        
+        # 添加分数信息（如果存在）
+        if "overall_score" in record:
+            result += f"总体得分: {record['overall_score']:.1f}\n"
+        
+        # 添加各项指标得分
+        score_fields = [
+            ("teaching_score", "教学环境"),
+            ("research_score", "研究实力"),
+            ("citations_score", "引用影响力"),
+            ("industry_income_score", "产业收入"),
+            ("international_outlook_score", "国际化程度")
+        ]
+        
+        for field, label in score_fields:
+            if field in record and record[field]:
+                try:
+                    score = float(record[field])
+                    result += f"{label}: {score:.1f}\n"
+                except (ValueError, TypeError):
+                    result += f"{label}: {record[field]}\n"
+        
+        # 添加其他指标（如果存在）
+        if "student_staff_ratio" in record and record["student_staff_ratio"]:
+            try:
+                value = float(record["student_staff_ratio"])
+                result += f"师生比例: {value:.1f}\n"
+            except (ValueError, TypeError):
+                result += f"师生比例: {record['student_staff_ratio']}\n"
+        
+        if "pc_intl_students" in record and record["pc_intl_students"]:
+            try:
+                value = float(record["pc_intl_students"])
+                result += f"国际学生占比: {value:.1f}%\n"
+            except (ValueError, TypeError):
+                result += f"国际学生占比: {record['pc_intl_students']}\n"
+        
+        # 添加学科信息（从json_data中提取，如果存在）
+        if "json_data" in record and record["json_data"]:
+            try:
+                json_data = json.loads(record["json_data"]) if isinstance(record["json_data"], str) else record["json_data"]
+                
+                if isinstance(json_data, dict) and "subjects" in json_data and json_data["subjects"]:
+                    subjects = json_data["subjects"]
+                    if isinstance(subjects, list) and subjects:
+                        result += f"优势学科: {', '.join(subjects[:5])}"
+                        if len(subjects) > 5:
+                            result += f" 等{len(subjects)}个学科"
+                        result += "\n"
+            except Exception as e:
+                print(f"解析学科信息时出错: {e}")
+        
+        # 添加相似度分数（如果提供）
+        if similarity is not None:
+            result += f"相似度: {similarity:.4f}\n"
+        
+        # 添加到结果列表
+        formatted_results.append(result)
+    
+    return formatted_results
 
+# 在THE2025集合中进行关键词搜索
+def the2025_keyword_search(collection, query, top_k=5):
+    """在THE2025集合中进行关键词搜索
+    
+    Args:
+        collection: Milvus集合对象
+        query: 用户查询文本
+        top_k: 返回结果数量
+        
+    Returns:
+        检索到的文本列表
+    """
+    try:
+        collection_name = collection.name
+        print(f"在 {collection_name} 中进行关键词搜索: '{query}'")
+        
+        # 1. 提取查询中的大学名称
+        university_names = extract_university_names(query)
+        # 2. 提取关键词
+        keywords = extract_keywords(query)
+        
+        # 打印调试信息
+        if university_names:
+            print(f"从查询中提取的大学名称: {university_names}")
+        if keywords:
+            print(f"从查询中提取的关键词: {keywords}")
+        
+        # 初始化记录列表
+        records = []
+        
+        # 3. 如果找到大学名称，优先按名称搜索
+        if university_names:
+            for name in university_names:
+                # 构建搜索表达式 - 模糊匹配大学名称
+                expr = f"name like '%{name}%'"
+                try:
+                    results = collection.query(
+                        expr=expr,
+                        output_fields=["id"] + list(set(collection.schema.fields_name) - {"id"}),
+                        limit=top_k
+                    )
+                    
+                    if results:
+                        print(f"通过大学名称 '{name}' 找到 {len(results)} 条记录")
+                        records.extend(results)
+                except Exception as e:
+                    print(f"按大学名称查询时出错: {e}")
+        
+        # 4. 处理排名区间相关查询
+        rank_pattern = r'(前|top)\s*(\d+)|排名\s*(\d+)\s*[-~到至]\s*(\d+)'
+        rank_matches = re.findall(rank_pattern, query, re.IGNORECASE)
+        
+        if rank_matches:
+            for match in rank_matches:
+                try:
+                    # 处理"前X"或"topX"
+                    if match[0] and match[1]:
+                        top_n = int(match[1])
+                        expr = f"rank <= '{top_n}'"
+                    # 处理"排名X-Y"
+                    elif match[2] and match[3]:
+                        start_rank = int(match[2])
+                        end_rank = int(match[3])
+                        # 由于rank是字符串字段，需要特殊处理
+                        # 构建一个范围查询的表达式
+                        expr = f"rank >= '{start_rank}' and rank <= '{end_rank}'"
+                    else:
+                        continue
+                    
+                    # 执行查询
+                    try:
+                        results = collection.query(
+                            expr=expr,
+                            output_fields=["id"] + list(set(collection.schema.fields_name) - {"id"}),
+                            limit=top_k
+                        )
+                        
+                        if results:
+                            print(f"通过排名条件 '{expr}' 找到 {len(results)} 条记录")
+                            records.extend(results)
+                    except Exception as e:
+                        print(f"按排名查询时出错: {e}")
+                except Exception as e:
+                    print(f"处理排名匹配时出错: {e}")
+        
+        # 5. 处理地区搜索
+        location_pattern = r'(位于|在)\s*([\w\s]+国家|[\w\s]+城市|[\w\s]+省份|[\w\s]+地区)'
+        location_matches = re.findall(location_pattern, query)
+        
+        if location_matches or any(keyword in query for keyword in ["国家", "地区", "洲", "欧洲", "亚洲", "美洲", "非洲"]):
+            # 提取地区关键词
+            location_keywords = []
+            for match in location_matches:
+                if match[1]:
+                    location_keywords.append(match[1].replace("国家", "").replace("城市", "").replace("省份", "").replace("地区", "").strip())
+            
+            # 添加常见地区词汇
+            for region in ["欧洲", "亚洲", "美洲", "北美", "南美", "非洲", "大洋洲", "英国", "美国", "中国", "日本", "法国", "德国", "澳大利亚"]:
+                if region in query and region not in location_keywords:
+                    location_keywords.append(region)
+            
+            if location_keywords:
+                print(f"提取的地区关键词: {location_keywords}")
+                
+                for location in location_keywords:
+                    # 构建地区搜索表达式
+                    expr = f"location like '%{location}%'"
+                    try:
+                        results = collection.query(
+                            expr=expr,
+                            output_fields=["id"] + list(set(collection.schema.fields_name) - {"id"}),
+                            limit=top_k
+                        )
+                        
+                        if results:
+                            print(f"通过地区关键词 '{location}' 找到 {len(results)} 条记录")
+                            records.extend(results)
+                    except Exception as e:
+                        print(f"按地区查询时出错: {e}")
+        
+        # 6. 处理得分相关查询
+        score_fields = [
+            ("overall_score", ["总分", "总得分", "整体", "总评"]),
+            ("teaching_score", ["教学", "教育", "师资"]),
+            ("research_score", ["研究", "科研", "学术"]),
+            ("citations_score", ["引用", "引文", "论文影响"]),
+            ("industry_income_score", ["产业", "行业", "收入", "工业"]),
+            ("international_outlook_score", ["国际", "国际化", "全球化", "国际视野"])
+        ]
+        
+        score_pattern = r'([\w\s]+分数|[\w\s]+得分|[\w\s]+评分)\s*(>|>=|=|==|<|<=)\s*(\d+\.?\d*)'
+        score_matches = re.findall(score_pattern, query)
+        
+        if score_matches:
+            for match in score_matches:
+                try:
+                    # 尝试确定匹配的是哪个分数字段
+                    matched_field = None
+                    for field, keywords in score_fields:
+                        if any(keyword in match[0] for keyword in keywords):
+                            matched_field = field
+                            break
+                    
+                    if not matched_field:
+                        # 默认为总分
+                        matched_field = "overall_score"
+                    
+                    # 构建查询表达式
+                    operator = match[1]
+                    if operator == "=":
+                        operator = "=="
+                    threshold = float(match[2])
+                    expr = f"{matched_field} {operator} {threshold}"
+                    
+                    # 执行查询
+                    try:
+                        results = collection.query(
+                            expr=expr,
+                            output_fields=["id"] + list(set(collection.schema.fields_name) - {"id"}),
+                            limit=top_k
+                        )
+                        
+                        if results:
+                            print(f"通过分数条件 '{expr}' 找到 {len(results)} 条记录")
+                            records.extend(results)
+                    except Exception as e:
+                        print(f"按分数查询时出错: {e}")
+                except Exception as e:
+                    print(f"处理分数匹配时出错: {e}")
+        
+        # 7. 如果仍未找到足够的结果，尝试在meta数据中搜索
+        if len(records) < top_k and "meta" in collection_name:
+            # 在json_data字段中进行关键词搜索
+            for keyword in keywords:
+                if len(keyword) < 2:  # 跳过过短的关键词
+                    continue
+                
+                expr = f"json_data like '%{keyword}%'"
+                try:
+                    results = collection.query(
+                        expr=expr,
+                        output_fields=["id"] + list(set(collection.schema.fields_name) - {"id"}),
+                        limit=top_k - len(records)
+                    )
+                    
+                    if results:
+                        print(f"通过json_data关键词 '{keyword}' 找到 {len(results)} 条记录")
+                        records.extend(results)
+                        
+                    if len(records) >= top_k:
+                        break
+                except Exception as e:
+                    print(f"在json_data中查询关键词时出错: {e}")
+        
+        # 移除重复记录
+        unique_records = []
+        seen_ids = set()
+        
+        for record in records:
+            if record["id"] not in seen_ids:
+                seen_ids.add(record["id"])
+                unique_records.append(record)
+        
+        # 限制结果数量
+        final_records = unique_records[:top_k]
+        
+        # 格式化结果
+        if final_records:
+            formatted_texts = format_the2025_results(final_records, keywords)
+            return formatted_texts
+        
+        return []
+    except Exception as e:
+        print(f"THE2025关键词搜索出错: {e}")
+        return []
+
+# 更新search_the2025_knowledge函数以包含关键词搜索
+def search_the2025_knowledge(collection, query, top_k=5):
+    """从THE2025排名数据中搜索相关信息
+    
+    Args:
+        collection: Milvus集合对象
+        query: 用户查询文本
+        top_k: 返回结果数量
+    
+    Returns:
+        检索到的文本列表
+    """
+    # 首先尝试关键词搜索
+    keyword_results = the2025_keyword_search(collection, query, top_k)
+    if keyword_results:
+        print("关键词搜索成功，返回结果")
+        return keyword_results
+    
+    # 如果关键词搜索失败，回退到向量搜索
+    print("关键词搜索未找到结果，尝试向量搜索")
+    
+    # 获取查询向量 - 根据集合类型使用正确的维度
+    collection_name = collection.name
+    
+    # 确定向量字段名和向量维度
+    vector_field = None
+    if "basic_info" in collection_name:
+        vector_field = "basic_info_vector"
+        vector_dim = 768
+    elif "subjects" in collection_name:
+        vector_field = "subjects_vector"
+        vector_dim = 768
+    elif "metrics" in collection_name:
+        vector_field = "metrics_vector"
+        vector_dim = 10
+    elif "meta" in collection_name:
+        # 元数据集合不支持向量搜索，使用ID查询
+        vector_field = "dummy_vector"
+        vector_dim = 2
+    else:
+        # 默认假设为基本信息向量
+        vector_field = "basic_info_vector"
+        vector_dim = 768
+    
+    # 将集合维度加入全局映射
+    COLLECTION_DIMS[collection_name] = vector_dim
+    
+    # 提取关键词
+    keywords = extract_keywords(query)
+    
+    # 获取查询向量
+    query_embedding = get_embedding(query, collection_name=collection_name)
+    
+    # 获取集合架构信息和可用字段
+    field_names = []
+    try:
+        # 尝试获取一条记录并检查其字段
+        sample = collection.query(expr="", limit=1)
+        if sample and len(sample) > 0:
+            field_names = list(sample[0].keys())
+            print(f"集合 {collection_name} 中存在的字段: {field_names}")
+    except Exception as e:
+        print(f"无法获取集合字段信息: {e}")
+    
+    # 确定搜索参数
+    # 对于metrics使用L2距离，其他使用余弦相似度
+    if "metrics" in collection_name:
+        search_params = {"metric_type": "L2", "params": {"ef": 100}}
+    else:
+        search_params = {"metric_type": "COSINE", "params": {"ef": 100}}
+    
+    # 执行搜索
+    try:
+        # 构造搜索参数
+        search_kwargs = {
+            "data": [query_embedding],
+            "anns_field": vector_field,
+            "param": search_params,
+            "limit": top_k
+        }
+        
+        # 添加输出字段 (如果有)
+        if field_names:
+            search_kwargs["output_fields"] = field_names
+        
+        # 执行搜索
+        results = collection.search(**search_kwargs)
+        
+        # 处理结果
+        records = []
+        similarity_scores = []
+        
+        for hit in results[0]:
+            try:
+                # 保存实体数据
+                record = dict(hit.entity)
+                # 保存ID
+                record["id"] = hit.id
+                # 保存相似度分数
+                similarity_scores.append(hit.distance)
+                
+                records.append(record)
+            except Exception as e:
+                print(f"处理THE2025搜索结果时出错: {e}")
+                continue
+        
+        # 格式化结果
+        if records:
+            formatted_texts = format_the2025_results(records, keywords, similarity_scores)
+            return formatted_texts
+        
+        return []
+    except Exception as e:
+        print(f"THE2025查询出错: {e}")
+        return []
 
 # 从美国高校数据中搜索相关信息
 def search_us_colleges_knowledge(collection, query, top_k=5, state=None, region=None, control=None):
@@ -1495,6 +1941,12 @@ def load_knowledge_variables(collections, query, top_k=5, use_keyword_search=Tru
                 for coll_name in arwu_collections:
                     if coll_name in collections:
                         priority_collections.append((coll_name, collections[coll_name]))
+            elif dataset_type == "the2025":
+                # 优先使用THE2025数据集，按照优先级排序
+                the2025_collections = ["the2025_meta", "the2025_basic_info", "the2025_subjects", "the2025_metrics"]
+                for coll_name in the2025_collections:
+                    if coll_name in collections:
+                        priority_collections.append((coll_name, collections[coll_name]))
             
             # 将优先集合排在前面
             if priority_collections:
@@ -1527,22 +1979,30 @@ def load_knowledge_variables(collections, query, top_k=5, use_keyword_search=Tru
                 
                 # 优先使用关键词搜索
                 if use_keyword_search:
-                    texts = keyword_search(collection, query, top_k=top_k)
-                    if texts:
-                        retrieved_texts = texts
-                        context_source = f"关键词搜索 ({coll_name})"
-                        print(f"关键词搜索成功: {coll_name}")
+                    # 对于THE2025集合，使用专门的keyword_search函数
+                    if "the2025" in coll_name:
+                        texts = the2025_keyword_search(collection, query, top_k=top_k)
+                        if texts:
+                            retrieved_texts = texts
+                            context_source = f"THE2025关键词搜索 ({coll_name})"
+                            print(f"THE2025关键词搜索成功: {coll_name}")
+                    # 对于其他集合，使用通用的keyword_search函数
+                    else:
+                        texts = keyword_search(collection, query, top_k=top_k)
+                        if texts:
+                            retrieved_texts = texts
+                            context_source = f"关键词搜索 ({coll_name})"
+                            print(f"关键词搜索成功: {coll_name}")
                 
                 # 如果关键词搜索没有结果，回退到向量搜索
                 if not retrieved_texts:
                     print(f"关键词搜索未返回结果，尝试向量搜索: {coll_name}")
                     if "arwu" in coll_name:
                         texts = search_arwu_knowledge(collection, query, top_k=top_k)
-                    elif coll_name == "us_colleges":
+                    elif "us_colleges" in coll_name:
                         texts = search_us_colleges_knowledge(collection, query, top_k=top_k)
                     elif "the2025" in coll_name:
                         texts = search_the2025_knowledge(collection, query, top_k=top_k)
-                    #
                     else:
                         # 未知集合类型，跳过
                         print(f"未知集合类型，跳过: {coll_name}")
