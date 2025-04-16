@@ -2505,9 +2505,10 @@ def load_knowledge_variables(collections, query, top_k=5, use_keyword_search=Tru
                     unique_texts.append(text)
                     unique_sources.append(result_sources[i])
             
-            # 限制结果数量，保留最相关的top_k个
-            final_texts = unique_texts[:top_k]
-            final_sources = unique_sources[:top_k]
+            # 限制结果数量，始终保留5个最相关的结果（无论传入的top_k是多少）
+            max_results = 5
+            final_texts = unique_texts[:max_results]
+            final_sources = unique_sources[:max_results]
             
             # 打印信息
             for i, (text, source) in enumerate(zip(final_texts, final_sources)):
@@ -2552,17 +2553,9 @@ def generate_answer(query, context, model_name="deepseek-chat"):
     try:
         system_prompt = """
         你是一个专门回答大学相关问题的AI助手。你可以提供关于大学排名、学校情况、地理位置等信息。
-        
-        请根据提供的相关知识背景严格使用简洁精炼的语言完整回答用户的问题。如果知识背景中没有相关信息，请基于你的常识进行回答。你的回答中不得带有"注"或者"需要注意"的部分的描述。
-        
-        知识背景可能来自多个数据源，每个数据源会有明确的标记。如果不同数据源提供了冲突的信息，请综合考虑数据的可信度和完整性，优先使用：
-        1. 最新的信息（如果有日期标记）
-        2. 官方排名数据优先于非官方数据
-        3. 具体详细的信息优先于笼统的描述
-        
+        请根据提供的相关知识背景使用简洁精炼的语言完整回答用户的问题，
+        如果知识背景中没有相关信息或者缺失信息，一定要基于你的常识进行回答补充缺失信息。你的回答中不得带有"注"或者"需要注意"的部分的描述。
         如果是关于排名的问题，一定要提及具体的排名来源和排名年份。如果有多个来源的排名数据，可以一并提及并说明各自的特点。
-        
-        请注意，你的回答应该是连贯的、统一的，而不是简单地拼接不同数据源的信息。需要对所有数据源的信息进行整合，形成一个完整的答案。
         """
 
         # 默认使用DeepSeek API
@@ -2869,7 +2862,7 @@ def main():
         
         try:
             # 5. 检索相关信息
-            relevant_knowledge = load_knowledge_variables(knowledge_collections, user_input, top_k=3)
+            relevant_knowledge = load_knowledge_variables(knowledge_collections, user_input, top_k=5)
             
             # 6. 统计数据源使用情况
             sources = []
