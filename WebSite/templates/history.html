@@ -156,13 +156,21 @@
                                                             <!-- 单模型情况 - 现在是以模型名为键的嵌套字典 -->
                                                             {% set model_name = item.avg_scores.keys()|list|first %}
                                                             {% set model_scores = item.avg_scores[model_name] %}
-                                                            <span class="badge bg-info metric-badge">ROUGE-1: {{ "%.4f"|format(model_scores.avg_rouge_1) }}</span>
-                                                            <span class="badge bg-success metric-badge">ROUGE-L: {{ "%.4f"|format(model_scores.avg_rouge_l) }}</span>
+                                                            {% if model_scores is mapping %}
+                                                                <span class="badge bg-info metric-badge">ROUGE-1: {{ "%.4f"|format(model_scores.avg_rouge_1) if model_scores.avg_rouge_1 is defined else "N/A" }}</span>
+                                                                <span class="badge bg-success metric-badge">ROUGE-L: {{ "%.4f"|format(model_scores.avg_rouge_l) if model_scores.avg_rouge_l is defined else "N/A" }}</span>
+                                                            {% else %}
+                                                                <span class="badge bg-secondary">数据格式错误</span>
+                                                            {% endif %}
                                                         {% else %}
                                                             <!-- 多模型情况 - 显示第一个模型的数据 -->
                                                             {% set first_model = item.avg_scores.keys()|list|first %}
-                                                            <span class="badge bg-info metric-badge">{{ first_model }}: ROUGE-1: {{ "%.4f"|format(item.avg_scores[first_model].avg_rouge_1) }}</span>
-                                                            <span class="badge bg-success metric-badge">ROUGE-L: {{ "%.4f"|format(item.avg_scores[first_model].avg_rouge_l) }}</span>
+                                                            {% if item.avg_scores[first_model] is mapping %}
+                                                                <span class="badge bg-info metric-badge">{{ first_model }}: ROUGE-1: {{ "%.4f"|format(item.avg_scores[first_model].avg_rouge_1) if item.avg_scores[first_model].avg_rouge_1 is defined else "N/A" }}</span>
+                                                                <span class="badge bg-success metric-badge">ROUGE-L: {{ "%.4f"|format(item.avg_scores[first_model].avg_rouge_l) if item.avg_scores[first_model].avg_rouge_l is defined else "N/A" }}</span>
+                                                            {% else %}
+                                                                <span class="badge bg-secondary">数据格式错误</span>
+                                                            {% endif %}
                                                         {% endif %}
                                                     {% else %}
                                                         <span class="badge bg-secondary">无数据</span>
