@@ -3394,6 +3394,9 @@ def search_knowledge_from_multi_collections(
         检索到的文本列表
     """
     try:
+        # 分析查询，获取查询类型和参数
+        query_analysis = analyze_query(query)
+        
         # 准备选项
         options = []
         
